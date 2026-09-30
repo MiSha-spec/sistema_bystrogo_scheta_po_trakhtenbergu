@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>🛠️ Рабочий Ассистент</title>
+    <!-- Вкладка: красный крестик (PNG). Плашки браузеров сами берут
+         зелёный /favicon.ico из корня, поэтому его тут не объявляем -->
+    <link rel="icon" type="image/png" sizes="48x48" href="favicon-48.png?v=5">
+    <link rel="icon" type="image/png" sizes="32x32" href="favicon-32.png?v=5">
+    <link rel="apple-touch-icon" href="favicon-180.png?v=5">
+    <link rel="stylesheet" href="styles.css">
+    <link rel="stylesheet" href="assets/timer.css">
+    <link rel="stylesheet" href="assets/themes.css">
+    <script>try{document.documentElement.setAttribute("data-theme",localStorage.getItem("ra-theme")||"light")}catch(e){}</script>
+</head>
+<body>
+    <div class="container">
+        <header class="header">
+            <div class="header-tools">
+                <div class="search-box">
+                    <img class="search-icon" src="assets/icons/search.svg" alt="">
+                    <input type="text" id="searchInput" placeholder="Поиск...">
+                </div>
+                <button class="theme-toggle" id="themeToggle" title="Оформление">🎨</button>
+                <div class="sound-wrap">
+                    <button class="sound-btn" id="soundBtn" title="Фоновый звук">🔇</button>
+                    <div class="sound-menu" id="soundMenu"></div>
+                </div>
+            </div>
+        </header>
+
+        <div class="mindmap-panel" id="mindmapPanel">
+            <div class="mm-bg"></div>
+            <svg id="mindmap" viewBox="0 0 1000 800" xmlns="http://www.w3.org/2000/svg"></svg>
+            <div class="brain-center">
+                <img class="brain-img" id="brainImg" src="assets/icons/brain.png" alt="Мозг">
+            </div>
+            <div class="brain-caption">РАБОЧИЙ АССИСТЕНТ</div>
+            <div class="particles" id="particles"></div>
+            <button class="mm-instructions" id="mmInstructions">ℹ️ Инструкция по сайту</button>
+        </div>
+
+        <div class="stores-grid hidden" id="storesGrid"></div>
+
+        <!-- Экран инструкции -->
+        <div id="instructionScreen" class="screen hidden">
+            <button class="back-btn" onclick="closeInstruction()"><img class="btn-icon" src="assets/icons/back.svg" alt=""> Назад</button>
+            <div id="instructionContent"></div>
+        </div>
+    </div>
+
+    <!-- Pomodoro-таймер -->
+    <div class="pomodoro" id="pomodoro">
+        <button class="pomo-toggle" id="pomoToggle" title="Таймер" aria-label="Таймер"><img src="assets/icons/часы.png" alt=""></button>
+        <div class="pomo-panel" id="pomoPanel">
+            <div class="pomo-head">
+                <span class="pomo-mode" id="pomoMode">Фокус</span>
+                <button class="pomo-close" id="pomoClose" aria-label="Свернуть">×</button>
+            </div>
+            <div class="pomo-ring">
+                <svg viewBox="0 0 120 120">
+                    <circle class="pomo-track" cx="60" cy="60" r="52"></circle>
+                    <circle class="pomo-prog" id="pomoProg" cx="60" cy="60" r="52"></circle>
+                </svg>
+                <div class="pomo-time" id="pomoTime">25:00</div>
+            </div>
+            <div class="pomo-presets">
+                <button data-w="25" data-b="5">25 / 5</button>
+                <button data-w="50" data-b="10">50 / 10</button>
+            </div>
+            <div class="pomo-controls">
+                <button id="pomoStart">Старт</button>
+                <button id="pomoReset">Сброс</button>
+                <button id="pomoSkip" title="Пропустить фазу">⏭</button>
+            </div>
+            <label class="pomo-music"><input type="checkbox" id="pomoMusic"> Музыка фокуса</label>
+        </div>
+    </div>
+
+    <script src="data/general/instructions.js"></script>
+    <script src="data/yandex-market/checks.js"></script>
+    <script src="data/wildberries/checks.js"></script>
+    <script src="data/ozon/checks.js"></script>
+    <script src="assets/audio.js?v=4"></script>
+    <script src="assets/themes.js"></script>
+    <script src="app.js"></script>
+    <script src="assets/timer.js"></script>
+</body>
+</html>

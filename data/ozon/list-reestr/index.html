@@ -1,0 +1,96 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Сверка Лист отгрузки и реестр — ОЗОН</title>
+    <link rel="stylesheet" href="styles.css">
+    <link rel="stylesheet" href="../../../assets/site.css">
+    <link rel="stylesheet" href="../../../assets/themes.css">
+    <script>try{document.documentElement.setAttribute("data-theme",localStorage.getItem("ra-theme")||"light")}catch(e){}</script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+</head>
+<body>
+    <div class="container">
+        <button class="back-btn" onclick="window.location.href='../../../index.html'">← В меню</button>
+        
+        <div class="sverka-header">
+            <h2> Сверка Лист отгрузки и реестр</h2>
+            <p class="subtitle">когда отгрузка сформирована • ОЗОН</p>
+        </div>
+
+        <div class="sverka-layout">
+
+            <!-- Плашка 1: Лист отгрузки -->
+            <div class="panel upload-panel">
+                <div class="panel-header">
+                    <h3>📄 Лист отгрузки (PDF)</h3>
+                </div>
+                <div class="panel-body">
+                    <div class="upload-area" id="pdfUploadArea">
+                        <p class="area-desc">Загрузите <strong>Лист отгрузки</strong> из ЛК Ozon —<br>номера отправления возьмём из PDF автоматически</p>
+                        <input type="file" id="pdfFileInput" accept=".pdf" style="display:none">
+                        <button class="upload-btn" onclick="document.getElementById('pdfFileInput').click()">⬆️ Выбрать PDF</button>
+                        <p class="hint">или перетащите файл сюда</p>
+                        <p id="pdfFileName" class="file-name"></p>
+                    </div>
+                    <div id="pdfStatus" class="status"></div>
+                </div>
+            </div>
+
+            <!-- Плашка 2: Реестр из 1С -->
+            <div class="panel reestr-panel">
+                <div class="panel-header">
+                    <h3>📋 Номера из 1С (Телефон1)</h3>
+                </div>
+                <div class="panel-body">
+                    <p class="area-desc">Вставьте номера из столбика <strong>Телефон1</strong> реестра 1С —<br>каждый с новой строки, или загрузите файл реестра 1С (Excel)</p>
+                    <textarea id="reestrText" placeholder="Вставьте номера заказов (каждый с новой строки)&#10;52645843-0182-1&#10;93498332-0039-1&#10;68007217-0004-1"></textarea>
+                    <div class="reestr-file-row">
+                        <input type="file" id="reestrFileInput" accept=".xlsx,.xls,.csv" style="display:none">
+                        <button class="upload-btn" onclick="document.getElementById('reestrFileInput').click()">📥 Загрузить Excel (реестр 1С)</button>
+                        <span class="hint">столбик «Идентификатор МП» или «Телефон1» найдётся сам</span>
+                    </div>
+                    <div id="reestrFileStatus" class="status"></div>
+                    <div id="reestrDupWarning" class="dup-warning hidden"></div>
+                </div>
+            </div>
+        </div>
+
+        <button class="start-btn" onclick="startSverka()" id="startBtn">▶️ НАЧАТЬ СВЕРКУ</button>
+
+        <div id="progressSection" class="progress-section hidden">
+            <div class="progress-stats">
+                <span id="progressText">Обработка...</span>
+                <span id="progressPercent">0%</span>
+            </div>
+            <div class="progress-bar"><div class="progress-fill" id="progressFill"></div></div>
+            <div class="progress-details" id="progressDetails"></div>
+        </div>
+
+        <div id="resultsSection" class="results-section hidden">
+            <h3> Расхождения</h3>
+            <div class="summary" id="summary"></div>
+            <div class="table-wrapper">
+                <table>
+                    <thead>
+                        <tr><th>Номер отправления</th><th>В листе</th><th>В 1С</th><th>Статус</th></tr>
+                    </thead>
+                    <tbody id="resultsBody"></tbody>
+                </table>
+            </div>
+            <button class="export-btn" onclick="exportCSV()">📥 Скачать CSV</button>
+        </div>
+    </div>
+
+    <script src="script.js"></script>
+
+    <script src="../../../assets/reestr-file.js?v=1"></script>
+    <script>ReestrFileSupport.setup({ textareaId: 'reestrText', inputId: 'reestrFileInput', statusId: 'reestrFileStatus', dupId: 'reestrDupWarning', splitRe: /\n/ });</script>
+
+    <script src="../../../assets/audio.js?v=4"></script>
+    <script src="../../../assets/themes.js"></script>
+    <script src="../../../assets/theme.js"></script>
+</body>
+</html>
