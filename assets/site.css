@@ -411,3 +411,36 @@ tbody tr:hover { background: var(--section-bg) !important; }
     word-break: break-word;
 }
 .dup-warning.hidden { display: none; }
+
+/* ===== Результаты сверок: плотная светлая подложка =====
+   На фото-темах стеклянный фон «съедал» цифры и номера отменённых
+   заказов. Делаем блоки результатов непрозрачными с тёмным текстом —
+   читаемо в любой теме. */
+.results-section,
+.progress-section {
+    background: linear-gradient(165deg, #ffffff 0%, #f6f1ff 100%);
+    border: 1px solid rgba(155, 89, 182, 0.4);
+    border-radius: 20px;
+    box-shadow: 0 18px 44px rgba(40, 20, 70, 0.28);
+    padding: 20px 24px;
+    margin-bottom: 22px;
+}
+.results-section h3 { color: #2a2140 !important; }
+.results-section th {
+    color: #2a2140 !important;
+    background: rgba(155, 89, 182, 0.14) !important;
+}
+.results-section td { color: #2a2140 !important; font-weight: 600; }
+.results-section .summary-card {
+    background: #ffffff !important;
+    border: 2px solid rgba(155, 89, 182, 0.35) !important;
+}
+.results-section .summary-card .num { color: #2a2140 !important; }
+.results-section .summary-card .lbl { color: #6b6385 !important; }
+.results-section .summary-card.miss {
+    border-color: rgba(220, 53, 69, 0.55) !important;
+    background: #fff5f5 !important;
+}
+.results-section .summary-card.miss .num { color: #c0392b !important; }
+.progress-section .progress-stats,
+.progress-section .progress-details { color: #2a2140 !important; }
