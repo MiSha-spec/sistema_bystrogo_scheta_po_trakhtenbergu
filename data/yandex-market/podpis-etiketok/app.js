@@ -73,11 +73,24 @@ function fmtQty(q) {
 }
 
 /* ===== Сжатие PDF без потери качества: удаление дубликатов объектов =====
-   Страницы копируются из исходного PDF вместе с ресурсами, и один и тот
-   же тяжёлый объект (векторная эмблема маркетплейса и т.п.) попадает в
-   файл по одному экземпляру на каждую этикетку. Находим объекты с
-   ИДЕНТИЧНЫМ содержимым, оставляем первый экземпляр и переносим все
-   ссылки на него. Рендеринг не меняется ни на бит. */
+   Если исходный файл содержит по копии одного и того же тяжёлого объекта
+   на каждую этикетку (эмблема маркетплейса и т.п.), оставляем первый
+   экземпляр и переносим все ссылки на него. Рендеринг не меняется ни на
+   бит. Проверки типов — «утиные»: не зависят от экспорта классов pdf-lib. */
+
+function pdfIsRef(v) {
+    return !!(PDFLib.PDFRef && v instanceof PDFLib.PDFRef);
+}
+function pdfIsStream(o) {
+    return !!(o && o.dict && o.contents instanceof Uint8Array);
+}
+function pdfIsDict(o) {
+    return !!(o && typeof o.entries === 'function' && typeof o.set === 'function' && !(o.contents instanceof Uint8Array));
+}
+function pdfIsArray(o) {
+    return !!(o && typeof o.size === 'function' && typeof o.get === 'function' &&
+              typeof o.set === 'function' && typeof o.entries !== 'function');
+}
 
 function pdfHashBytes(u8) {
     // двойная свёртка: быстрая и практически без коллизий,
@@ -99,21 +112,21 @@ function pdfSameBytes(a, b) {
 /* Хэш объекта ПО СОДЕРЖИМОМУ (номера объектов не участвуют): два
    одинаковых объекта с разными номерами получают одинаковый хэш. */
 function pdfContentHash(ctx, obj, memo, inProgress) {
-    if (obj instanceof PDFLib.PDFRef) {
+    if (pdfIsRef(obj)) {
         const num = obj.number();
         if (memo.has(num)) return memo.get(num);
-        if (inProgress.has(num)) return '~c' + num;
+        if (inProgress.has(num)) return '~c';
         inProgress.add(num);
         const h = pdfContentHash(ctx, ctx.lookup(obj), memo, inProgress);
         inProgress.delete(num);
         memo.set(num, h);
         return h;
     }
-    if (obj instanceof PDFLib.PDFRawStream) {
+    if (pdfIsStream(obj)) {
         const dictH = pdfContentHash(ctx, obj.dict, memo, inProgress);
         return 'S[' + pdfHashBytes(obj.contents) + '|' + dictH + ']';
     }
-    if (obj instanceof PDFLib.PDFDict) {
+    if (pdfIsDict(obj)) {
         const parts = [];
         for (const [k, v] of obj.entries()) {
             parts.push(k.toString() + '=' + pdfContentHash(ctx, v, memo, inProgress));
@@ -121,7 +134,7 @@ function pdfContentHash(ctx, obj, memo, inProgress) {
         parts.sort();
         return 'D{' + parts.join(';') + '}';
     }
-    if (obj instanceof PDFLib.PDFArray) {
+    if (pdfIsArray(obj)) {
         const parts = [];
         for (let i = 0; i < obj.size(); i++) {
             parts.push(pdfContentHash(ctx, obj.get(i), memo, inProgress));
@@ -131,7 +144,7 @@ function pdfContentHash(ctx, obj, memo, inProgress) {
     try { return 'P' + obj.toString(); } catch (e) { return 'P?'; }
 }
 
-/* Возвращает число убранных дубликатов. */
+/* Возвращает число убранных дубликатов-потоков. */
 function dedupePdfObjects(pdfDoc) {
     try {
         const ctx = pdfDoc.context;
@@ -140,15 +153,17 @@ function dedupePdfObjects(pdfDoc) {
         const dupToOrig = new Map(); // ссылка дубликата -> ссылка оригинала
 
         for (const [ref, obj] of objects) {
+            if (!pdfIsStream(obj)) continue;            // тяжёлое — только потоки
+            const bytes = obj.contents;
+            if (!bytes || bytes.length < 1024) continue; // мелочь не ищем
             const h = pdfContentHash(ctx, obj, new Map(), new Set());
             const first = byHash.get(h);
             if (first === undefined) { byHash.set(h, ref); continue; }
             // страховка от коллизий: сверяем содержимое целиком
-            const a = ctx.lookup(first), b = ctx.lookup(ref);
-            if (a instanceof PDFLib.PDFRawStream && b instanceof PDFLib.PDFRawStream) {
-                if (!pdfSameBytes(a.contents, b.contents)) continue;
+            const a = ctx.lookup(first);
+            if (pdfIsStream(a) && pdfSameBytes(a.contents, bytes)) {
+                dupToOrig.set(ref, first);
             }
-            dupToOrig.set(ref, first);
         }
         if (!dupToOrig.size) return 0;
 
@@ -156,15 +171,15 @@ function dedupePdfObjects(pdfDoc) {
         const visit = (obj, seen) => {
             if (!obj || typeof obj !== 'object' || seen.has(obj)) return;
             seen.add(obj);
-            if (obj instanceof PDFLib.PDFDict) {
+            if (pdfIsDict(obj)) {
                 for (const [k, v] of obj.entries()) {
-                    if (v instanceof PDFLib.PDFRef && dupToOrig.has(v)) obj.set(k, dupToOrig.get(v));
+                    if (pdfIsRef(v) && dupToOrig.has(v)) obj.set(k, dupToOrig.get(v));
                     else if (v && typeof v === 'object') visit(v, seen);
                 }
-            } else if (obj instanceof PDFLib.PDFArray) {
+            } else if (pdfIsArray(obj)) {
                 for (let i = 0; i < obj.size(); i++) {
                     const v = obj.get(i);
-                    if (v instanceof PDFLib.PDFRef && dupToOrig.has(v)) obj.set(i, dupToOrig.get(v));
+                    if (pdfIsRef(v) && dupToOrig.has(v)) obj.set(i, dupToOrig.get(v));
                     else if (v && typeof v === 'object') visit(v, seen);
                 }
             }
@@ -1001,12 +1016,13 @@ async function startProcessing() {
         // 4) сортировка по названию и сборка итогового PDF
         setProgress(totalPages, totalPages, 'Сортировка по названию и сборка PDF...');
         const pageOrder = sortPagesByProductName(results);
+        const keep = pageOrder.filter(i => results[i] && results[i].status === 'OK');
         const outDoc = await PDFLib.PDFDocument.create();
-        for (const i of pageOrder) {
-            if (!results[i] || results[i].status !== 'OK') continue;
-            const [copied] = await outDoc.copyPages(pdfDoc, [i]);
-            outDoc.addPage(copied);
-        }
+        // ВАЖНО: все страницы копируем ОДНИМ вызовом — внутри одного
+        // copyPages pdf-lib переиспользует общие объекты (эмблему,
+        // шрифты), и файл не раздувается копией на каждую этикетку
+        const copiedPages = await outDoc.copyPages(pdfDoc, keep);
+        copiedPages.forEach(p => outDoc.addPage(p));
 
         // 4а) сжатие без потери качества: один и тот же тяжёлый объект
         // (например, векторная эмблема маркетплейса) копируется в каждую
