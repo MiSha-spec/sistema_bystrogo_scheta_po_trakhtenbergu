@@ -408,7 +408,7 @@ function openInstruction(store, item) {
                             <div class="si-store st-ya">
                                 <div class="si-store-head"><span class="si-store-ico">🚚</span>ЯндексМаркет</div>
                                 <ul>
-                                    <li><a href="data/yandex-market/shk-reestr/index.html" class="sverka-link">Сверка ШК и реестр</a><span class="si-li-desc">сравнивает штрихкоды из PDF с наклейками и реестром номеров из 1С</span></li>
+                                    <li><a href="data/yandex-market/shk-reestr/index.html" class="sverka-link">Отменённые заказы, сверка ШК и реестра 1С</a><span class="si-li-desc">сравнивает штрихкоды из PDF с наклейками и реестром из 1С, показывает заказы реестра, отменённые в ЛК</span></li>
                                     <li><a href="data/yandex-market/akt-reestr/index.html" class="sverka-link">Сверка АКТ и реестр</a><span class="si-li-desc">сравнивает номера из акта (PDF) с реестром номеров из 1С</span></li>
                                     <li><a href="data/yandex-market/gruzomesta/index.html" class="sverka-link">Сверка по грузоместам</a><span class="si-li-desc">сравнивает количество грузомест из Excel-файла ЛК с реестром из 1С</span></li>
                                     <li><a href="data/yandex-market/podpis-etiketok/index.html" class="sverka-link">Подпись этикеток</a><span class="si-li-desc">подписывает названия товаров на этикетках из PDF — остаются только заказы с количеством 1 из реестра 1С, внизу список удалённых с причинами</span></li>

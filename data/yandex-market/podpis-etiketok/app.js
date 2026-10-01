@@ -72,6 +72,112 @@ function fmtQty(q) {
     return Number.isInteger(q) ? String(q) : String(Math.round(q * 100) / 100);
 }
 
+/* ===== Сжатие PDF без потери качества: удаление дубликатов объектов =====
+   Страницы копируются из исходного PDF вместе с ресурсами, и один и тот
+   же тяжёлый объект (векторная эмблема маркетплейса и т.п.) попадает в
+   файл по одному экземпляру на каждую этикетку. Находим объекты с
+   ИДЕНТИЧНЫМ содержимым, оставляем первый экземпляр и переносим все
+   ссылки на него. Рендеринг не меняется ни на бит. */
+
+function pdfHashBytes(u8) {
+    // двойная свёртка: быстрая и практически без коллизий,
+    // при совпадении хэша содержимое сверяется целиком
+    let h1 = 0x811c9dc5, h2 = 0x01000193;
+    for (let i = 0; i < u8.length; i++) {
+        h1 = Math.imul((h1 ^ u8[i]) >>> 0, 16777619) >>> 0;
+        h2 = (h2 + Math.imul(u8[i], i % 7 + 1)) >>> 0;
+    }
+    return u8.length + ':' + h1.toString(36) + h2.toString(36);
+}
+
+function pdfSameBytes(a, b) {
+    if (!a || !b || a.length !== b.length) return false;
+    for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) return false;
+    return true;
+}
+
+/* Хэш объекта ПО СОДЕРЖИМОМУ (номера объектов не участвуют): два
+   одинаковых объекта с разными номерами получают одинаковый хэш. */
+function pdfContentHash(ctx, obj, memo, inProgress) {
+    if (obj instanceof PDFLib.PDFRef) {
+        const num = obj.number();
+        if (memo.has(num)) return memo.get(num);
+        if (inProgress.has(num)) return '~c' + num;
+        inProgress.add(num);
+        const h = pdfContentHash(ctx, ctx.lookup(obj), memo, inProgress);
+        inProgress.delete(num);
+        memo.set(num, h);
+        return h;
+    }
+    if (obj instanceof PDFLib.PDFRawStream) {
+        const dictH = pdfContentHash(ctx, obj.dict, memo, inProgress);
+        return 'S[' + pdfHashBytes(obj.contents) + '|' + dictH + ']';
+    }
+    if (obj instanceof PDFLib.PDFDict) {
+        const parts = [];
+        for (const [k, v] of obj.entries()) {
+            parts.push(k.toString() + '=' + pdfContentHash(ctx, v, memo, inProgress));
+        }
+        parts.sort();
+        return 'D{' + parts.join(';') + '}';
+    }
+    if (obj instanceof PDFLib.PDFArray) {
+        const parts = [];
+        for (let i = 0; i < obj.size(); i++) {
+            parts.push(pdfContentHash(ctx, obj.get(i), memo, inProgress));
+        }
+        return 'A[' + parts.join(',') + ']';
+    }
+    try { return 'P' + obj.toString(); } catch (e) { return 'P?'; }
+}
+
+/* Возвращает число убранных дубликатов. */
+function dedupePdfObjects(pdfDoc) {
+    try {
+        const ctx = pdfDoc.context;
+        const objects = ctx.enumerateIndirectObjects();
+        const byHash = new Map();    // хэш содержимого -> первая ссылка
+        const dupToOrig = new Map(); // ссылка дубликата -> ссылка оригинала
+
+        for (const [ref, obj] of objects) {
+            const h = pdfContentHash(ctx, obj, new Map(), new Set());
+            const first = byHash.get(h);
+            if (first === undefined) { byHash.set(h, ref); continue; }
+            // страховка от коллизий: сверяем содержимое целиком
+            const a = ctx.lookup(first), b = ctx.lookup(ref);
+            if (a instanceof PDFLib.PDFRawStream && b instanceof PDFLib.PDFRawStream) {
+                if (!pdfSameBytes(a.contents, b.contents)) continue;
+            }
+            dupToOrig.set(ref, first);
+        }
+        if (!dupToOrig.size) return 0;
+
+        // переносим все ссылки на дубликаты к оригиналам
+        const visit = (obj, seen) => {
+            if (!obj || typeof obj !== 'object' || seen.has(obj)) return;
+            seen.add(obj);
+            if (obj instanceof PDFLib.PDFDict) {
+                for (const [k, v] of obj.entries()) {
+                    if (v instanceof PDFLib.PDFRef && dupToOrig.has(v)) obj.set(k, dupToOrig.get(v));
+                    else if (v && typeof v === 'object') visit(v, seen);
+                }
+            } else if (obj instanceof PDFLib.PDFArray) {
+                for (let i = 0; i < obj.size(); i++) {
+                    const v = obj.get(i);
+                    if (v instanceof PDFLib.PDFRef && dupToOrig.has(v)) obj.set(i, dupToOrig.get(v));
+                    else if (v && typeof v === 'object') visit(v, seen);
+                }
+            }
+        };
+        for (const [, obj] of objects) visit(obj, new Set());
+        for (const ref of dupToOrig.keys()) ctx.delete(ref);
+        return dupToOrig.size;
+    } catch (e) {
+        console.warn('Сжатие PDF не удалось (файл сохранён без сжатия):', e);
+        return 0;
+    }
+}
+
 function normalizeAngle(a) {
     const r = ((Number(a) || 0) % 360 + 360) % 360;
     return [0, 90, 180, 270].includes(r) ? r : 0;
@@ -901,6 +1007,13 @@ async function startProcessing() {
             const [copied] = await outDoc.copyPages(pdfDoc, [i]);
             outDoc.addPage(copied);
         }
+
+        // 4а) сжатие без потери качества: один и тот же тяжёлый объект
+        // (например, векторная эмблема маркетплейса) копируется в каждую
+        // этикетку и раздувает файл в десятки раз. Оставляем одну копию.
+        setProgress(totalPages, totalPages, 'Сжимаем PDF: убираем дубликаты...');
+        const dupesRemoved = dedupePdfObjects(outDoc);
+
         const outBytes = await outDoc.save({ useObjectStreams: true, addDefaultPage: false, objectsPerTick: 50 });
 
         // 5) скачивание PDF
@@ -939,6 +1052,7 @@ async function startProcessing() {
 
         document.getElementById('resultStats').innerHTML =
             `📦 Размер файла: <strong>${sizeMB} МБ</strong> · этикеток оставлено: <strong>${ok}</strong> из ${totalPages}, отсортированы по названию` +
+            (dupesRemoved ? ` · 🗜 сжато без потери качества (убрано повторов: ${dupesRemoved})` : '') +
             (noName ? `<br>⚠️ Без названия (нет в списке ЛК или в прайсе): <strong>${noName}</strong> — подробности в таблице проверки` : '');
         document.getElementById('resultSection').classList.remove('hidden');
 
