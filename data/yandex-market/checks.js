@@ -1,8 +1,13 @@
 const ymChecks = [
 {
 id: 'shk-reestr',
-title: 'Отменённые заказы, сверка ШК и реестра 1С',
+title: 'Сверка ШК и реестра 1С',
 path: 'data/yandex-market/shk-reestr/index.html'
+},
+{
+id: 'ym-canceled',
+title: 'Отменённые заказы',
+path: 'data/yandex-market/otmenennye-zakazy/index.html'
 },
 {
 id: 'akt-reestr',

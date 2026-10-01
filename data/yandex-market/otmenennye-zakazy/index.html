@@ -3,44 +3,25 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Сверка ШК и реестра 1С — ЯндексМаркет</title>
+    <title>Отменённые заказы — ЯндексМаркет</title>
     <link rel="stylesheet" href="styles.css">
     <link rel="stylesheet" href="../../../assets/site.css?v=2">
     <link rel="stylesheet" href="../../../assets/themes.css">
     <script>try{document.documentElement.setAttribute("data-theme",localStorage.getItem("ra-theme")||"light")}catch(e){}</script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 </head>
 <body>
     <div class="container">
         <button class="back-btn" onclick="window.location.href='../../../index.html'">← В меню</button>
-        
+
         <div class="sverka-header">
-            <h2><span class="e">🚚</span> Сверка ШК и реестра 1С</h2>
-            <p class="subtitle">ЯндексМаркет</p>
+            <h2><span class="e">🚫</span> Отменённые заказы</h2>
+            <p class="subtitle">какие заказы из реестра 1С отменены в ЛК • ЯндексМаркет</p>
         </div>
 
-        <!-- Два одинаковых окна в ряд -->
         <div class="sverka-layout">
 
-            <!-- Плашка 1: PDF с наклейками -->
-            <div class="panel upload-panel">
-                <div class="panel-header">
-                    <h3>📄 PDF с наклейками</h3>
-                </div>
-                <div class="panel-body">
-                    <div class="upload-area" id="pdfUploadArea">
-                        <p class="area-desc">Загрузите <strong>PDF с наклейками</strong> —<br>номера извлекутся из штрихкодов автоматически</p>
-                        <input type="file" id="pdfFileInput" accept=".pdf" style="display:none">
-                        <button class="upload-btn" onclick="document.getElementById('pdfFileInput').click()">️ Выбрать PDF</button>
-                        <p class="hint">или перетащите файл сюда</p>
-                        <p id="pdfFileName" class="file-name"></p>
-                    </div>
-                    <div id="pdfStatus" class="status"></div>
-                </div>
-            </div>
-
-            <!-- Плашка 2: Реестр -->
+            <!-- Плашка 1: Реестр номеров -->
             <div class="panel reestr-panel">
                 <div class="panel-header">
                     <h3>📋 Реестр номеров</h3>
@@ -58,36 +39,41 @@
                 </div>
             </div>
 
-        </div>
-
-        <button class="start-btn" onclick="startSverka()" id="startBtn">▶️ НАЧАТЬ СВЕРКУ</button>
-
-        <div id="progressSection" class="progress-section hidden">
-            <div class="progress-stats">
-                <span id="progressText">Обработка...</span>
-                <span id="progressPercent">0%</span>
+            <!-- Плашка 2: Список заказов из ЛК -->
+            <div class="panel lk-panel2">
+                <div class="panel-header">
+                    <h3>🛒 Список заказов из ЛК</h3>
+                </div>
+                <div class="panel-body">
+                    <p class="area-desc">Загрузите <strong>список заказов из ЛК</strong> (order_service…xlsx) —<br>возьмём заказы со статусом «Отменён в процессе обработки» и сравним с реестром 1С</p>
+                    <div class="reestr-file-row">
+                        <input type="file" id="lkFileInput" accept=".xlsx,.xls,.csv" style="display:none">
+                        <button class="upload-btn small" onclick="document.getElementById('lkFileInput').click()">📥 Загрузить Excel из ЛК</button>
+                        <span class="hint">шапка, названия и число столбиков могут быть любыми — найдём сами</span>
+                    </div>
+                    <div id="lkFileStatus" class="status"></div>
+                </div>
             </div>
-            <div class="progress-bar"><div class="progress-fill" id="progressFill"></div></div>
-            <div class="progress-details" id="progressDetails"></div>
         </div>
 
-        <div id="resultsSection" class="results-section hidden">
-            <h3>📊 Расхождения</h3>
-            <div class="summary" id="summary"></div>
+        <!-- Результат: заказы из реестра 1С, отменённые в ЛК -->
+        <div id="lkResultsSection" class="results-section hidden">
+            <h3>🚫 Заказы из реестра 1С, отменённые в ЛК</h3>
+            <div class="summary" id="lkSummary"></div>
             <div class="table-wrapper">
                 <table>
                     <thead>
-                        <tr><th>Номер</th><th>В наклейках</th><th>В реестре</th><th>Статус</th></tr>
+                        <tr><th class="col-num">№</th><th>Номер заказа (из реестра 1С)</th></tr>
                     </thead>
-                    <tbody id="resultsBody"></tbody>
+                    <tbody id="lkResultsBody"></tbody>
                 </table>
             </div>
-<button class="export-btn" onclick="copyDiffNumbers()" style="margin-right: 10px;">📋 Копировать номера</button>
-            <button class="export-btn" onclick="exportCSV()">📥 Скачать CSV</button>
+            <button class="export-btn" onclick="copyLkList(this)" style="margin-right: 10px;">📋 Копировать список</button>
+            <button class="export-btn" onclick="exportLkCSV()">📥 Скачать CSV</button>
         </div>
     </div>
 
-    <script src="script.js?v=2"></script>
+    <script src="script.js"></script>
 
     <script src="../../../assets/reestr-file.js?v=1"></script>
     <script>ReestrFileSupport.setup({ textareaId: 'reestrText', inputId: 'reestrFileInput', statusId: 'reestrFileStatus', dupId: 'reestrDupWarning' });</script>
