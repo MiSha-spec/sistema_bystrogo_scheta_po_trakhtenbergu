@@ -26,14 +26,19 @@
             .replace(/^['"`«»]+|['"`«»]+$/g, '');
     }
 
-    /* Поиск столбика «Идентификатор МП» / «Телефон1» на листе */
-    function findReestrCol(rows) {
+    /* Поиск столбика «Идентификатор МП» / «Телефон1» на листе.
+       allowed — список допустимых заголовков в нормализованном виде;
+       если не задан, ищутся оба стандартных столбика. */
+    function findReestrCol(rows, allowed) {
         const limit = Math.min(rows.length, 100);
         for (let r = 0; r < limit; r++) {
             const row = rows[r] || [];
             for (let c = 0; c < row.length; c++) {
                 const h = normHeader(row[c]);
-                if (h === 'идентификатормп' || h === 'телефон1') {
+                const ok = allowed
+                    ? allowed.indexOf(h) !== -1
+                    : (h === 'идентификатормп' || h === 'телефон1');
+                if (ok) {
                     return { col: c, headerRow: r, header: h === 'идентификатормп' ? 'Идентификатор МП' : 'Телефон1' };
                 }
             }
@@ -43,12 +48,12 @@
 
     /* Читает все листы книги и собирает номера из найденных столбиков.
        Возвращает { header, numbers } — с повторами, или null, если столбика нет. */
-    function numbersFromWorkbook(wb) {
+    function numbersFromWorkbook(wb, allowed) {
         const out = [];
         let header = null;
         for (const name of wb.SheetNames) {
             const rows = XLSX.utils.sheet_to_json(wb.Sheets[name], { header: 1, raw: false, defval: null });
-            const found = findReestrCol(rows);
+            const found = findReestrCol(rows, allowed);
             if (!found) continue;
             if (!header) header = found.header;
             for (let r = found.headerRow + 1; r < rows.length; r++) {
@@ -126,7 +131,7 @@
                         let wb;
                         if (/\.csv$/i.test(name)) wb = XLSX.read(await file.text(), { type: 'string' });
                         else wb = XLSX.read(new Uint8Array(await file.arrayBuffer()), { type: 'array' });
-                        const res = numbersFromWorkbook(wb);
+                        const res = numbersFromWorkbook(wb, opts.allowedHeaders);
                         if (!res) {
                             setStatus('❌ Не нашли столбик «Идентификатор МП» или «Телефон1» — проверьте, тот ли файл загружен.', 'error');
                             return;
