@@ -50,7 +50,7 @@
                     <div class="reestr-file-row">
                         <input type="file" id="reestrFileInput" accept=".xlsx,.xls,.csv" style="display:none">
                         <button class="upload-btn" onclick="document.getElementById('reestrFileInput').click()">📥 Загрузить Excel (реестр 1С)</button>
-                        <span class="hint">столбик «Идентификатор МП» или «Телефон1» найдётся сам</span>
+                        <span class="hint">из файла берётся только столбик «Телефон1»</span>
                     </div>
                     <div id="reestrFileStatus" class="status"></div>
                     <div id="reestrDupWarning" class="dup-warning hidden"></div>
@@ -86,8 +86,8 @@
 
     <script src="script.js"></script>
 
-    <script src="../../../assets/reestr-file.js?v=2"></script>
-    <script>ReestrFileSupport.setup({ textareaId: 'reestrText', inputId: 'reestrFileInput', statusId: 'reestrFileStatus', dupId: 'reestrDupWarning', splitRe: /\n/ });</script>
+    <script src="../../../assets/reestr-file.js?v=3"></script>
+    <script>ReestrFileSupport.setup({ textareaId: 'reestrText', inputId: 'reestrFileInput', statusId: 'reestrFileStatus', dupId: 'reestrDupWarning', splitRe: /\n/, allowedHeaders: ['телефон1'] });</script>
 
     <script src="../../../assets/audio.js?v=4"></script>
     <script src="../../../assets/themes.js"></script>
