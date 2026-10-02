@@ -132,6 +132,7 @@
                             return;
                         }
                         textarea.value = res.numbers.join('\n');
+                        textarea.dispatchEvent(new Event('input'));
                         setStatus(`✅ Из файла «${name}» взято ${res.numbers.length} номеров (столбик «${res.header}»)`, 'success');
                     } else {
                         // .txt и прочее — как текст (прежнее поведение)
