@@ -50,7 +50,7 @@
                     <div class="reestr-file-row">
                         <input type="file" id="reestrFileInput" accept=".xlsx,.xls,.csv" style="display:none">
                         <button class="upload-btn" onclick="document.getElementById('reestrFileInput').click()">📥 Загрузить Excel (реестр 1С)</button>
-                        <span class="hint">из файла берётся только столбик «Телефон1»</span>
+                        <span class="hint">или перетащите файл сюда (.xlsx, .xls, .csv) — из него возьмём только столбик «Телефон1»</span>
                     </div>
                     <div id="reestrFileStatus" class="status"></div>
                     <div id="reestrDupWarning" class="dup-warning hidden"></div>
@@ -86,8 +86,8 @@
 
     <script src="script.js"></script>
 
-    <script src="../../../assets/reestr-file.js?v=3"></script>
-    <script>ReestrFileSupport.setup({ textareaId: 'reestrText', inputId: 'reestrFileInput', statusId: 'reestrFileStatus', dupId: 'reestrDupWarning', splitRe: /\n/, allowedHeaders: ['телефон1'] });</script>
+    <script src="../../../assets/reestr-file.js?v=4"></script>
+    <script>ReestrFileSupport.setup({ textareaId: 'reestrText', inputId: 'reestrFileInput', statusId: 'reestrFileStatus', dropId: 'reestrText', dupId: 'reestrDupWarning', splitRe: /\n/, allowedHeaders: ['телефон1'] });</script>
 
     <script src="../../../assets/audio.js?v=4"></script>
     <script src="../../../assets/themes.js"></script>

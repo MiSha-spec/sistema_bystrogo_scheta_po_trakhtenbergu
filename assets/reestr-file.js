@@ -159,6 +159,22 @@
             });
         }
 
+        // Перетаскивание файла на элемент (если задан dropId)
+        const dropEl = opts.dropId ? document.getElementById(opts.dropId) : null;
+        if (dropEl && input) {
+            ['dragenter', 'dragover'].forEach(ev => dropEl.addEventListener(ev, e => {
+                e.preventDefault();
+                dropEl.classList.add('reestr-drop-hover');
+            }));
+            dropEl.addEventListener('dragleave', () => dropEl.classList.remove('reestr-drop-hover'));
+            dropEl.addEventListener('drop', e => {
+                e.preventDefault();
+                dropEl.classList.remove('reestr-drop-hover');
+                const f = e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0];
+                if (f) handleFile(f);
+            });
+        }
+
         textarea.addEventListener('input', refreshDupWarning);
         refreshDupWarning();
     }

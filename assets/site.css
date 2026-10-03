@@ -444,3 +444,5 @@ tbody tr:hover { background: var(--section-bg) !important; }
 .results-section .summary-card.miss .num { color: #c0392b !important; }
 .progress-section .progress-stats,
 .progress-section .progress-details { color: #2a2140 !important; }
+
+.reestr-drop-hover { outline: 2px dashed var(--accent, #9B59B6); outline-offset: -2px; }
