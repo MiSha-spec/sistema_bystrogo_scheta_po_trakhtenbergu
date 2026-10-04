@@ -407,14 +407,20 @@ const LP_HEAD = 'FF404040';
 function buildLpXlsx(rows) {
     const zip = new JSZip();
 
-    // Картинки: фото товара (col C) и этикетки (col H)
+    // Картинки: фото товара (col C) и этикетки (col H).
+    // Единая высота 96 px — фото и этикетка в строке выглядят одинаково.
+    const IMG_H = 96;
     const imgs = [];
     rows.forEach((r, i) => {
         if (r.photo) {
             const dim = (r.photo.w && r.photo.h) ? { w: r.photo.w, h: r.photo.h } : imageSize(r.photo.bytes, r.photo.ext);
-            imgs.push({ row0: i + 1, col: 2, bytes: r.photo.bytes, ext: r.photo.ext, w: dim.w, h: dim.h });
+            const k = IMG_H / dim.h;
+            imgs.push({ row0: i + 1, col: 2, bytes: r.photo.bytes, ext: r.photo.ext, w: dim.w * k, h: IMG_H });
         }
-        if (r.label) imgs.push({ row0: i + 1, col: 7, bytes: r.label.bytes, ext: 'png', w: r.label.w, h: r.label.h });
+        if (r.label) {
+            const k = IMG_H / r.label.h;
+            imgs.push({ row0: i + 1, col: 7, bytes: r.label.bytes, ext: 'png', w: r.label.w * k, h: IMG_H });
+        }
     });
     const hasJpg = imgs.some(im => im.ext === 'jpg' || im.ext === 'jpeg');
     const hasPng = imgs.some(im => im.ext === 'png');
@@ -504,7 +510,7 @@ function buildLpXlsx(rows) {
         '<cellStyles count="1"><cellStyle name="Обычный" xfId="0" builtinId="0"/></cellStyles>' +
         '</styleSheet>');
 
-    const widths = [12.25, 11, 8.5, 22.875, 21.125, 9.75, 16.5, 13.75];
+    const widths = [12.25, 11, 10.5, 22.875, 21.125, 9.75, 16.5, 19.5];
     const n = rows.length;
     let sheet =
         '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>' +
@@ -542,7 +548,7 @@ function buildLpXlsx(rows) {
 
     rows.forEach((r, i) => {
         const rn = i + 2;
-        sheet += `<row r="${rn}"${(r.photo || r.label) ? ' ht="128" customHeight="1"' : ''}>`;
+        sheet += `<row r="${rn}"${(r.photo || r.label) ? ' ht="82" customHeight="1"' : ''}>`;
         sheet += cellText('A', rn, r.docNum || '');
         sheet += cellText('B', rn, r.num);
         sheet += cellEmpty('C', rn); // фото — картинкой
