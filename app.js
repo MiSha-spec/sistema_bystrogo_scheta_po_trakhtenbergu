@@ -431,7 +431,7 @@ function openInstruction(store, item) {
                                 <ul>
                                     <li><a href="data/wildberries/couriers/index.html" class="sverka-link">Курьеры экспресс</a><span class="si-li-desc">формирует файлы для назначения курьеров на основе Excel-файла</span></li>
                                     <li><a href="data/wildberries/wb-lp/index.html" class="sverka-link">Лист подбора ВБ (LP)</a><span class="si-li-desc">склеивает файлы WB-GI и wb в готовый Лист подбора со стикерами, артикулами и подсветкой отказов</span></li>
-                                    <li><a href="data/wildberries/wb-lp-pics/index.html" class="sverka-link">ЛП ВБ с картинками и наименованиями из 1С</a><span class="si-li-desc">пересобирает печатный Лист подбора (PDF): вместо «Бренд» и «Размер» — «Наименование из 1С» по артикулу из прайса, и сортирует PDF этикеток ШК в порядке листа</span></li>
+                                    <li><a href="data/wildberries/wb-lp-pics/index.html" class="sverka-link">ЛП ВБ с картинками и 1С</a><span class="si-li-desc">собирает Лист подбора в Excel: фото из конверта PDF→Word, «Наименование 1С» по артикулу из прайса, «Номер документа» из заказов МБТ, этикетки ШК колонкой</span></li>
                                     <li><a href="data/wildberries/otmenennye-zakazy/index.html" class="sverka-link">Отменённые заказы и реестр</a><span class="si-li-desc">показывает номера из реестра 1С (Идентификатор МП или Телефон1), которые есть среди отменённых заданий из ЛК WB (столбик № задания)</span></li>
                                 </ul>
                             </div>

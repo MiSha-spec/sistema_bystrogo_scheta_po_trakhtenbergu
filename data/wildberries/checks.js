@@ -11,7 +11,7 @@ const wbChecks = [
     },
     {
         id: 'wb-lp-pics',
-        title: 'ЛП ВБ с картинками и наименованиями из 1С',
+        title: 'ЛП ВБ с картинками и 1С',
         path: 'data/wildberries/wb-lp-pics/index.html'
     },
     {

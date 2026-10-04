@@ -1,16 +1,18 @@
-/* ЛП ВБ с картинками и наименованиями из 1С
-   Вход:  печатный Лист подбора (PDF), этикетки ШК (PDF), прайс 1С (Excel).
-   Выход: 1) ЛП без столбиков «Бренд» и «Размер», зато с «Наименование из 1С»
-             (по артикулу из прайса) и с фото из исходного листа;
-          2) PDF этикеток ШК, страницы которых идут в порядке строк листа. */
+/* ЛП ВБ с картинками и 1С
+   Вход:  Лист подбора в Word (конверт из PDF, напр. tools.pdf24.org),
+          этикетки ШК (PDF), прайс 1С (Excel), заказы МБТ 30 (Excel).
+   Выход: Excel «Лист подбора»: Номер документа | № задания | ФОТО ТОВАРА |
+          Наименование ЛК | Наименование 1С | Артикул продавца | Стикер |
+          Этикетка. Этикетки уже идут в порядке листа — сортировка не нужна. */
 
 /* ============================ Состояние ============================ */
 
-let listData  = null; // { rows: [{num, name, color, article, sticker, photo}], meta, name }
-let shkData   = null; // { bySticker: Map(стикер -> индекс страницы), pages, name }
-let priceData = null; // { map: Map(артикул -> наименование), name }
+let listData   = null; // { rows: [{num, name, color, article, sticker, photo:{bytes,ext,w,h}}], name }
+let shkData    = null; // { ordered: [png], pages, name }
+let priceData  = null; // { map: Map(артикул -> наименование), name }
+let ordersData = null; // { map: Map(№ задания -> Номер документа), name }
 
-let built = null;   // { rows, lpBlob, shkBlob, noName, noLabel }
+let built = null;   // { rows, blob, noDoc, noName }
 let showAllMode = false;
 
 /* ============================ Служебные ============================ */
@@ -29,7 +31,7 @@ function setProgress(pct, text, details) {
 }
 
 function updateStartBtn() {
-    document.getElementById('startBtn').disabled = !(listData && shkData && priceData);
+    document.getElementById('startBtn').disabled = !(listData && shkData && priceData && ordersData);
 }
 
 function wireUpload(areaId, inputId, handler) {
@@ -54,67 +56,64 @@ function normKey(s) {
     return String(s == null ? '' : s).replace(/[\s\u00A0\u2007\u202F]+/g, '');
 }
 
-function b64ToBytes(b64) {
-    const bin = atob(b64);
-    const u = new Uint8Array(bin.length);
-    for (let i = 0; i < bin.length; i++) u[i] = bin.charCodeAt(i);
-    return u;
+function escapeXml(s) {
+    return String(s).replace(/[&<>"']/g, c => ({
+        '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&apos;'
+    }[c]));
 }
 
-/* Перенос текста по ширине; длинные слова режем; максимум maxLines строк */
-function wrapText(text, font, size, maxW, maxLines) {
-    const words = String(text || '').split(/\s+/).filter(Boolean);
-    const lines = [];
-    let cur = '';
-    for (const w of words) {
-        const t = cur ? cur + ' ' + w : w;
-        if (font.widthOfTextAtSize(t, size) <= maxW) { cur = t; continue; }
-        if (cur) { lines.push(cur); cur = ''; }
-        if (font.widthOfTextAtSize(w, size) <= maxW) { cur = w; continue; }
-        // слово само шире столбика — режем посимвольно
-        let part = w;
-        while (part && font.widthOfTextAtSize(part, size) > maxW) {
-            let cut = part.length - 1;
-            while (cut > 1 && font.widthOfTextAtSize(part.slice(0, cut), size) > maxW) cut--;
-            lines.push(part.slice(0, cut));
-            part = part.slice(cut);
+/* Читает таблицу Excel: находит строку шапки с нужными колонками и
+   возвращает строки данных ниже неё */
+function readSheet(buf, requiredCols) {
+    const wb = XLSX.read(buf, { type: 'array' });
+    for (const sn of wb.SheetNames) {
+        const ws = wb.Sheets[sn];
+        if (!ws) continue;
+        const grid = XLSX.utils.sheet_to_json(ws, { header: 1, raw: false, defval: '' });
+        const norm = (v) => String(v == null ? '' : v).trim();
+        let headerIdx = -1;
+        for (let i = 0; i < Math.min(grid.length, 15); i++) {
+            const cells = grid[i].map(norm);
+            if (requiredCols.every(c => cells.includes(c))) { headerIdx = i; break; }
         }
-        cur = part;
+        if (headerIdx === -1) continue;
+        const headers = grid[headerIdx].map(norm);
+        const idx = {};
+        requiredCols.forEach(c => { idx[c] = headers.indexOf(c); });
+        const rows = [];
+        for (let i = headerIdx + 1; i < grid.length; i++) {
+            const r = grid[i];
+            const item = {};
+            requiredCols.forEach(c => { item[c] = norm(r[idx[c]]); });
+            rows.push(item);
+        }
+        return rows;
     }
-    if (cur) lines.push(cur);
-    if (lines.length <= maxLines) return lines;
-    const cut = lines.slice(0, maxLines);
-    let last = cut[maxLines - 1];
-    while (last && font.widthOfTextAtSize(last + '…', size) > maxW) last = last.slice(0, -1);
-    cut[maxLines - 1] = last + '…';
-    return cut;
+    throw new Error('не найдены колонки: ' + requiredCols.join(', '));
 }
 
 /* ============================ Лист подбора (PDF) ============================ */
 
-/* Колонки листа подбора: № задания | Фото | Бренд | Наименование | Размер |
-   Цвет | Артикул продавца | Стикер. Границы колонок берём из шапки,
-   текст раскладываем по колонкам и по ближайшей строке (номер задания).
-   Здесь же собираем геометрию страниц — она нужна, чтобы дорисовать
-   «Наименование из 1С» прямо в исходном PDF. */
-async function handleList(file) {
-    document.getElementById('listFileName').textContent = file.name;
-    setStatus('listStatus', '⏳ Читаем PDF...', '');
+/* Таблица листа подбора: № задания | Фото | Бренд | Наименование | Размер |
+   Цвет | Артикул продавца | Стикер. Текст раскладываем по колонкам (pdf.js),
+   а фото достаём из недр PDF (pdf-lib) — это исходные JPEG в идеальном
+   качестве; привязываем их к строкам по координатам в содержимом страницы. */
+async function handleListPdf(file) {
+    document.getElementById('docxFileName').textContent = file.name;
+    setStatus('docxStatus', '⏳ Читаем PDF...', '');
     try {
         const buf = new Uint8Array(await file.arrayBuffer());
-        const bytesKeep = new Uint8Array(buf); // копия до передачи pdf.js — для pdf-lib
+        const bytesKeep = new Uint8Array(buf); // копия для pdf-lib — pdf.js забирает буфер себе
         const doc = await pdfjsLib.getDocument({ data: buf }).promise;
-        const rows = [];              // в порядке листа
+        const rows = [];
         const seen = new Set();
-        const pageGeoms = [];         // {anchorYs, bounds, headerY} на страницу
-        const meta = { title: '', date: '', count: '' };
+        const pageGeoms = [];
         let bounds = null, headerY = null;
 
         for (let p = 1; p <= doc.numPages; p++) {
-            setProgress(Math.round(5 + p / doc.numPages * 30), 'Чтение листа подбора: стр. ' + p + '/' + doc.numPages, '');
+            setProgress(Math.round(2 + p / doc.numPages * 20), 'Чтение листа подбора: стр. ' + p + '/' + doc.numPages, '');
             const page = await doc.getPage(p);
             const tc = await page.getTextContent();
-
             const items = [];
             for (const it of tc.items) {
                 if (!it.str || !it.str.trim()) continue;
@@ -147,15 +146,6 @@ async function handleList(file) {
                 return c;
             };
 
-            // служебные строки над таблицей (только на первой странице с шапкой)
-            if (!meta.title || !meta.date) {
-                for (const it of items) {
-                    if (!meta.title && /Лист подбора/.test(it.s)) meta.title = it.s;
-                    if (!meta.date && /^Дата:/.test(it.s)) meta.date = it.s;
-                    if (!meta.count && /Количество товаров/.test(it.s)) meta.count = it.s;
-                }
-            }
-
             // якоря строк — 10-значные номера в первой колонке
             const anchors = [];
             for (const it of items) {
@@ -182,89 +172,150 @@ async function handleList(file) {
             }
             const joinYX = (arr) => arr.sort((a, b) => (b.y - a.y) || (a.x - b.x))
                 .map(o => o.s).join(' ').replace(/\s+/g, ' ').trim();
+            const geo = { anchors: [], bounds: bounds.map(b => ({ name: b.name, x: b.x })), headerY: headerY };
             for (const [num, c] of buckets) {
                 if (seen.has(num)) continue;
                 const article = joinYX(c.article).replace(/\s+/g, '');
                 const sticker = joinYX(c.sticker).replace(/\s+/g, '');
                 if (!article || !sticker) continue;
                 seen.add(num);
-                rows.push({
+                const row = {
                     num: num,
                     name: joinYX(c.name),
                     color: joinYX(c.color),
                     article: article,
-                    sticker: sticker
-                });
+                    sticker: sticker,
+                    photo: null
+                };
+                rows.push(row);
+                const a = anchors.find(x => x.num === num);
+                geo.anchors.push({ y: a.y, row: row });
             }
-            pageGeoms.push({
-                anchorYs: anchors.map(a => ({ y: a.y, num: a.num, bgName: null, bgSize: null })),
-                bounds: bounds.map(b => ({ name: b.name, x: b.x })),
-                headerY: headerY
-            });
-
-            // цвета фона строк (в исходнике строки чередуются серым/белым —
-            // заплатки должны совпадать по цвету). Рендерим страницу в мелком
-            // масштабе и снимаем цвет правее текста, у края колонки.
-            try {
-                const sLow = 0.4;
-                const vpLow = page.getViewport({ scale: sLow });
-                const cv = document.createElement('canvas');
-                cv.width = Math.max(2, Math.floor(vpLow.width));
-                cv.height = Math.max(2, Math.floor(vpLow.height));
-                const cctx = cv.getContext('2d', { alpha: false });
-                cctx.fillStyle = '#ffffff';
-                cctx.fillRect(0, 0, cv.width, cv.height);
-                await page.render({ canvasContext: cctx, viewport: vpLow }).promise;
-                const pageH = page.getViewport({ scale: 1 }).height;
-                const xB = bounds.find(b => b.name === 'size');
-                const xA = bounds.find(b => b.name === 'article');
-                const geo = pageGeoms[pageGeoms.length - 1];
-                for (const a of geo.anchorYs) {
-                    const sample = (xPt) => {
-                        const px = Math.min(cv.width - 1, Math.max(0, Math.round(xPt * sLow)));
-                        const py = Math.min(cv.height - 1, Math.max(0, Math.round((pageH - a.y - 17) * sLow)));
-                        const d = cctx.getImageData(px, py, 1, 1).data;
-                        return [d[0], d[1], d[2]];
-                    };
-                    if (xB) a.bgName = sample(xB.x - 8);   // край колонки «Размер» — зона имени
-                    if (xA) a.bgSize = sample(xA.x - 8);   // край колонки «Артикул» — зона 1С
-                }
-            } catch (e) { /* нет канваса — заплатки будут белыми */ }
+            pageGeoms.push(geo);
         }
         if (!rows.length) throw new Error('не нашли ни одного задания в PDF');
-        listData = { rows: rows, meta: meta, pages: pageGeoms, bytes: bytesKeep, name: file.name };
-        setStatus('listStatus', `✅ Строк: ${rows.length}`, 'success');
+
+        // фото: исходные JPEG из PDF, привязка по координатам колонки «Фото»
+        setProgress(24, 'Достаём фото из PDF...', '');
+        const pdfDoc = await PDFLib.PDFDocument.load(bytesKeep, { ignoreEncryption: true });
+        const imgCache = new Map();
+        const imageOf = (obj) => {
+            if (imgCache.has(obj)) return imgCache.get(obj);
+            let res = null;
+            try {
+                const filter = obj.dict.lookup(PDFLib.PDFName.of('Filter'));
+                // DCTDecode: сырые байты потока — это готовый JPEG
+                if (filter && filter.toString().indexOf('DCTDecode') !== -1 && obj.contents) {
+                    res = {
+                        bytes: obj.contents,
+                        ext: 'jpg',
+                        w: obj.dict.lookup(PDFLib.PDFName.of('Width')).asNumber(),
+                        h: obj.dict.lookup(PDFLib.PDFName.of('Height')).asNumber()
+                    };
+                }
+            } catch (e) { res = null; }
+            imgCache.set(obj, res);
+            return res;
+        };
+        for (let p = 0; p < pdfDoc.getPageCount() && p < pageGeoms.length; p++) {
+            const geo = pageGeoms[p];
+            if (!geo || !geo.anchors.length) continue;
+            const page = pdfDoc.getPage(p);
+            const nameToObj = new Map();
+            const res = page.node.Resources();
+            const xo = res ? res.lookup(PDFLib.PDFName.of('XObject')) : null;
+            if (xo && xo.entries) {
+                for (const entry of xo.entries()) {
+                    const obj = pdfDoc.context.lookup(entry[1]);
+                    if (obj && obj.dict) nameToObj.set(entry[0].toString(), obj);
+                }
+            }
+            if (!nameToObj.size) continue;
+            const content = pageContent(pdfDoc, page);
+            const re = /(-?[\d.]+)\s+(-?[\d.]+)\s+(-?[\d.]+)\s+(-?[\d.]+)\s+(-?[\d.]+)\s+(-?[\d.]+)\s+cm\s*\/(\w+)\s+Do/g;
+            let m;
+            while ((m = re.exec(content)) !== null) {
+                const obj = nameToObj.get('/' + m[7]);
+                if (!obj) continue;
+                const iw = +m[1], ih = +m[4], ix = +m[5], iy = +m[6];
+                const cx = ix + iw / 2, cy = iy + ih / 2;
+                const bPhoto = geo.bounds.find(b => b.name === 'photo');
+                const bBrand = geo.bounds.find(b => b.name === 'brand');
+                if (!bPhoto || !bBrand) continue;
+                if (cx < bPhoto.x - 25 || cx > bBrand.x + 30) continue; // не колонка «Фото»
+                let best = null, bd = Infinity;
+                for (const a of geo.anchors) {
+                    const d2 = Math.abs(a.y - cy);
+                    if (d2 < bd) { bd = d2; best = a; }
+                }
+                if (!best || bd > 40 || !best.row || best.row.photo) continue;
+                best.row.photo = imageOf(obj);
+            }
+        }
+        listData = { rows: rows, name: file.name };
+        setStatus('docxStatus', `✅ Строк: ${rows.length} (фото: ${rows.filter(r => r.photo).length})`, 'success');
     } catch (err) {
         listData = null;
-        setStatus('listStatus', '❌ Ошибка: ' + err.message, 'error');
+        setStatus('docxStatus', '❌ Ошибка: ' + err.message, 'error');
         console.error(err);
     }
     updateStartBtn();
 }
 
+/* Декодирует поток содержимого страницы в строку (latin1) */
+function pageContent(doc, page) {
+    const dec = (s) => {
+        try { return PDFLib.decodePDFRawStream(s).decode(); }
+        catch (e) { return new Uint8Array(0); }
+    };
+    const parts = [];
+    const c = page.node.Contents();
+    if (c instanceof PDFLib.PDFArray) {
+        for (let i = 0; i < c.size(); i++) parts.push(dec(doc.context.lookup(c.get(i))));
+    } else if (c) {
+        const s = doc.context.lookup(c);
+        if (s) parts.push(dec(s));
+    }
+    let len = 0;
+    parts.forEach(p2 => len += p2.length);
+    let str = '';
+    parts.forEach(p2 => {
+        for (let i = 0; i < p2.length; i++) str += String.fromCharCode(p2[i]);
+    });
+    return str;
+}
+
 /* ============================ Этикетки ШК (PDF) ============================ */
 
-/* Каждая страница — стикер с номером ШК («WB 5868407 0992» — части могут
-   быть разбиты произвольно, склеиваем все цифры после «WB»). */
+/* Картинки этикеток: рендерим страницы в PNG по порядку — он уже совпадает
+   с порядком строк листа, сортировка не нужна. */
 async function handleShk(file) {
     document.getElementById('shkFileName').textContent = file.name;
-    setStatus('shkStatus', '⏳ Читаем этикетки...', '');
+    setStatus('shkStatus', '⏳ Рендерим этикетки...', '');
     try {
         const buf = new Uint8Array(await file.arrayBuffer());
-        const bytesKeep = new Uint8Array(buf); // копия до передачи pdf.js — он забирает буфер себе
         const doc = await pdfjsLib.getDocument({ data: buf }).promise;
-        const bySticker = new Map();
+        const ordered = [];
         for (let p = 1; p <= doc.numPages; p++) {
             const page = await doc.getPage(p);
-            const tc = await page.getTextContent();
-            const txt = tc.items.map(it => it.str).join(' ');
-            const m = txt.match(/WB\s*(\d{4,8})\s*(\d{3,8})/);
-            if (m && !bySticker.has(m[1] + m[2])) bySticker.set(m[1] + m[2], p - 1);
-            setProgress(Math.round(40 + p / doc.numPages * 8), 'Чтение этикеток: ' + p + '/' + doc.numPages, '');
+            const vp = page.getViewport({ scale: 2 });
+            const canvas = document.createElement('canvas');
+            canvas.width = Math.floor(vp.width);
+            canvas.height = Math.floor(vp.height);
+            const ctx2 = canvas.getContext('2d', { alpha: false });
+            ctx2.fillStyle = '#ffffff';
+            ctx2.fillRect(0, 0, canvas.width, canvas.height);
+            await page.render({ canvasContext: ctx2, viewport: vp }).promise;
+            const dataUrl = canvas.toDataURL('image/png');
+            ordered.push({
+                bytes: Uint8Array.from(atob(dataUrl.split(',')[1]), c => c.charCodeAt(0)),
+                w: canvas.width, h: canvas.height
+            });
+            setProgress(Math.round(p / doc.numPages * 90), 'Рендер этикеток: ' + p + '/' + doc.numPages, '');
+            if (p % 10 === 0) await new Promise(r => setTimeout(r, 0));
         }
-        if (!bySticker.size) throw new Error('не нашли ни одного ШК на этикетках');
-        shkData = { bySticker: bySticker, pages: doc.numPages, bytes: bytesKeep, name: file.name };
-        setStatus('shkStatus', `✅ Страниц: ${doc.numPages} (ШК распознано: ${bySticker.size})`, 'success');
+        shkData = { ordered: ordered, pages: doc.numPages, name: file.name };
+        setStatus('shkStatus', `✅ Этикеток: ${ordered.length}`, 'success');
     } catch (err) {
         shkData = null;
         setStatus('shkStatus', '❌ Ошибка: ' + err.message, 'error');
@@ -280,10 +331,11 @@ async function handlePrice(file) {
     document.getElementById('priceFileName').textContent = file.name;
     setStatus('priceStatus', '⏳ Чтение файла...', '');
     try {
-        const wb = XLSX.read(new Uint8Array(await file.arrayBuffer()), { type: 'array' });
-        const rows = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { header: 1, raw: false, defval: '' });
+        const buf = new Uint8Array(await file.arrayBuffer());
+        const wb = XLSX.read(buf, { type: 'array' });
+        const grid = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { header: 1, raw: false, defval: '' });
         const map = new Map();
-        for (const r of rows) {
+        for (const r of grid) {
             const art = normKey(r[0]);
             const nm = String(r[1] == null ? '' : r[1]).trim();
             if (art && nm && !map.has(art)) map.set(art, nm);
@@ -299,152 +351,223 @@ async function handlePrice(file) {
     updateStartBtn();
 }
 
-/* ============================ Модификация исходного ЛП (pdf-lib) ============================ */
+/* ============================ Заказы МБТ 30 (Excel) ============================ */
 
-/* Не перерисовываем таблицу, а правим исходный PDF:
-   — столбик «Бренд» убираем (закрашиваем), «Наименование» переезжает на его
-     место и становится шире (минимум 2 строки);
-   — столбик «Размер» превращаем в «Наименование из 1С» (по артикулу из прайса);
-   — фото, сетка, номера, артикулы, стикеры и заголовок листа остаются родными. */
-
-const MOD_NAME_SIZE = 8;    // шрифт наименований
-const MOD_1C_SIZE = 7.5;    // шрифт наименований из 1С
-const BLACK = PDFLib.rgb(0.13, 0.13, 0.13);
-
-/* Перенос текста; если влезло в одну строку — делим на две сбалансированные */
-function wrapMin2(text, font, size, maxW, maxLines) {
-    const lines = wrapText(text, font, size, maxW, maxLines);
-    if (lines.length > 1 || lines.length === 0) return lines;
-    const words = String(text).split(/\s+/).filter(Boolean);
-    if (words.length < 2) return lines;
-    let best = 1, bestDiff = Infinity;
-    for (let k = 1; k < words.length; k++) {
-        const w1 = font.widthOfTextAtSize(words.slice(0, k).join(' '), size);
-        const w2 = font.widthOfTextAtSize(words.slice(k).join(' '), size);
-        const diff = Math.abs(w1 - w2);
-        if (w1 <= maxW && w2 <= maxW && diff < bestDiff) { bestDiff = diff; best = k; }
+/* «Идентификатор МП» = № задания → «Номер документа» */
+async function handleOrders(file) {
+    document.getElementById('ordersFileName').textContent = file.name;
+    setStatus('ordersStatus', '⏳ Чтение файла...', '');
+    try {
+        const rows = readSheet(new Uint8Array(await file.arrayBuffer()), ['Идентификатор МП', 'Номер документа']);
+        const map = new Map();
+        for (const r of rows) {
+            const mp = normKey(r['Идентификатор МП']);
+            const dn = String(r['Номер документа'] || '').trim();
+            if (mp && dn && !map.has(mp)) map.set(mp, dn);
+        }
+        if (!map.size) throw new Error('не нашли пар «Идентификатор МП + Номер документа»');
+        ordersData = { map: map, name: file.name };
+        setStatus('ordersStatus', `✅ Заказов: ${map.size}`, 'success');
+    } catch (err) {
+        ordersData = null;
+        setStatus('ordersStatus', '❌ Ошибка: ' + err.message, 'error');
+        console.error(err);
     }
-    if (best === words.length) return lines;
-    return [words.slice(0, best).join(' '), words.slice(best).join(' ')];
+    updateStartBtn();
 }
 
-async function buildLpModified(srcBytes, rows, pages, rowByNum) {
-    const doc = await PDFLib.PDFDocument.load(srcBytes);
-    doc.registerFontkit(window.fontkit);
-    const fReg = await doc.embedFont(b64ToBytes(window.DEJAVU_FONT_B64), { subset: true });
-    const fBold = await doc.embedFont(b64ToBytes(window.DEJAVU_BOLD_FONT_B64), { subset: true });
+/* Размеры картинки из байтов (нужны для anchora в xlsx) */
+function imageSize(bytes, ext) {
+    try {
+        if (ext === 'png') {
+            return { w: (bytes[16] << 24 | bytes[17] << 16 | bytes[18] << 8 | bytes[19]) >>> 0,
+                     h: (bytes[20] << 24 | bytes[21] << 16 | bytes[22] << 8 | bytes[23]) >>> 0 };
+        }
+        if (ext === 'jpg' || ext === 'jpeg') {
+            for (let i = 2; i < bytes.length - 9;) {
+                if (bytes[i] !== 0xFF) { i++; continue; }
+                const marker = bytes[i + 1];
+                if (marker === 0xC0 || marker === 0xC1 || marker === 0xC2) {
+                    return { h: bytes[i + 5] << 8 | bytes[i + 6], w: bytes[i + 7] << 8 | bytes[i + 8] };
+                }
+                i += 2 + (bytes[i + 2] << 8 | bytes[i + 3]);
+            }
+        }
+    } catch (e) { /* не разобрались — возьмём стандартный размер */ }
+    return { w: 90, h: 110 };
+}
 
-    const xOf = (bounds, name) => {
-        const b = bounds.find(x => x.name === name);
-        return b ? b.x : null;
+/* ============================ Генерация Excel ============================ */
+
+/* Колонки как в образце: A Номер документа (12.25) | B № задания (11) |
+   C ФОТО ТОВАРА (8.5) | D Наименование ЛК (22.875) | E Наименование 1С (21.125) |
+   F Артикул продавца (9.75) | G Стикер (16.5) | H Этикетка (13.75) */
+const LP_HEAD = 'FF404040';
+
+function buildLpXlsx(rows) {
+    const zip = new JSZip();
+
+    // Картинки: фото товара (col C) и этикетки (col H)
+    const imgs = [];
+    rows.forEach((r, i) => {
+        if (r.photo) {
+            const dim = (r.photo.w && r.photo.h) ? { w: r.photo.w, h: r.photo.h } : imageSize(r.photo.bytes, r.photo.ext);
+            imgs.push({ row0: i + 1, col: 2, bytes: r.photo.bytes, ext: r.photo.ext, w: dim.w, h: dim.h });
+        }
+        if (r.label) imgs.push({ row0: i + 1, col: 7, bytes: r.label.bytes, ext: 'png', w: r.label.w, h: r.label.h });
+    });
+    const hasJpg = imgs.some(im => im.ext === 'jpg' || im.ext === 'jpeg');
+    const hasPng = imgs.some(im => im.ext === 'png');
+
+    zip.file('[Content_Types].xml',
+        '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>' +
+        '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">' +
+        '<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>' +
+        '<Default Extension="xml" ContentType="application/xml"/>' +
+        '<Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>' +
+        '<Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>' +
+        '<Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/>' +
+        (hasJpg ? '<Default Extension="jpg" ContentType="image/jpeg"/>' : '') +
+        (hasPng ? '<Default Extension="png" ContentType="image/png"/>' : '') +
+        (imgs.length ? '<Override PartName="/xl/drawings/drawing1.xml" ContentType="application/vnd.openxmlformats-officedocument.drawing+xml"/>' : '') +
+        '</Types>');
+
+    zip.file('_rels/.rels',
+        '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>' +
+        '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">' +
+        '<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/>' +
+        '</Relationships>');
+
+    zip.file('xl/workbook.xml',
+        '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>' +
+        '<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">' +
+        '<sheets><sheet name="Лист подбора" sheetId="1" r:id="rId1"/></sheets>' +
+        '</workbook>');
+
+    zip.file('xl/_rels/workbook.xml.rels',
+        '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>' +
+        '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">' +
+        '<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/>' +
+        '<Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/>' +
+        '</Relationships>');
+
+    if (imgs.length) {
+        zip.file('xl/worksheets/_rels/sheet1.xml.rels',
+            '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>' +
+            '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">' +
+            '<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/drawing" Target="../drawings/drawing1.xml"/>' +
+            '</Relationships>');
+        let rels = '', anchors = '';
+        imgs.forEach((im, k) => {
+            const name = 'image' + (k + 1) + '.' + (im.ext === 'jpeg' ? 'jpg' : im.ext);
+            zip.file('xl/media/' + name, im.bytes);
+            rels += '<Relationship Id="rId' + (k + 1) + '" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="../media/' + name + '"/>';
+            anchors +=
+                '<xdr:oneCellAnchor>' +
+                '<xdr:from><xdr:col>' + im.col + '</xdr:col><xdr:colOff>19050</xdr:colOff><xdr:row>' + im.row0 + '</xdr:row><xdr:rowOff>19050</xdr:rowOff></xdr:from>' +
+                '<xdr:ext cx="' + (im.w * 9525) + '" cy="' + (im.h * 9525) + '"/>' +
+                '<xdr:pic><xdr:nvPicPr><xdr:cNvPr id="' + (k + 2) + '" name="Картинка ' + (k + 1) + '"/><xdr:cNvPicPr/></xdr:nvPicPr>' +
+                '<xdr:blipFill><a:blip xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" r:embed="rId' + (k + 1) + '"/><a:stretch><a:fillRect/></a:stretch></xdr:blipFill>' +
+                '<xdr:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="' + (im.w * 9525) + '" cy="' + (im.h * 9525) + '"/></a:xfrm><a:prstGeom prst="rect"><a:avLst/></a:prstGeom></xdr:spPr></xdr:pic>' +
+                '<xdr:clientData/></xdr:oneCellAnchor>';
+        });
+        zip.file('xl/drawings/drawing1.xml',
+            '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>' +
+            '<xdr:wsDr xmlns:xdr="http://schemas.openxmlformats.org/drawingml/2006/spreadsheetDrawing" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main">' + anchors + '</xdr:wsDr>');
+        zip.file('xl/drawings/_rels/drawing1.xml.rels',
+            '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>' +
+            '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">' + rels + '</Relationships>');
+    }
+
+    zip.file('xl/styles.xml',
+        '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>' +
+        '<styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">' +
+        '<fonts count="2">' +
+        '<font><sz val="11"/><name val="Calibri"/></font>' +
+        '<font><b/><sz val="11"/><color rgb="FFFFFFFF"/><name val="Calibri"/></font>' +
+        '</fonts>' +
+        '<fills count="3">' +
+        '<fill><patternFill patternType="none"/></fill>' +
+        '<fill><patternFill patternType="gray125"/></fill>' +
+        `<fill><patternFill patternType="solid"><fgColor rgb="${LP_HEAD}"/><bgColor indexed="64"/></patternFill></fill>` +
+        '</fills>' +
+        '<borders count="2">' +
+        '<border><left/><right/><top/><bottom/><diagonal/></border>' +
+        '<border><left style="thin"><color indexed="64"/></left><right style="thin"><color indexed="64"/></right><top style="thin"><color indexed="64"/></top><bottom style="thin"><color indexed="64"/></bottom><diagonal/></border>' +
+        '</borders>' +
+        '<cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs>' +
+        '<cellXfs count="3">' +
+        '<xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/>' +
+        '<xf numFmtId="0" fontId="1" fillId="2" borderId="1" xfId="0" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1"><alignment horizontal="center" vertical="center"/></xf>' +
+        '<xf numFmtId="0" fontId="0" fillId="0" borderId="1" xfId="0" applyBorder="1" applyAlignment="1"><alignment vertical="center" wrapText="1"/></xf>' +
+        '</cellXfs>' +
+        '<cellStyles count="1"><cellStyle name="Обычный" xfId="0" builtinId="0"/></cellStyles>' +
+        '</styleSheet>');
+
+    const widths = [12.25, 11, 8.5, 22.875, 21.125, 9.75, 16.5, 13.75];
+    const n = rows.length;
+    let sheet =
+        '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>' +
+        '<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">' +
+        `<dimension ref="A1:H${n + 1}"/>` +
+        '<sheetViews><sheetView workbookViewId="0">' +
+        '<pane ySplit="1" topLeftCell="A2" activePane="bottomLeft" state="frozen"/>' +
+        '</sheetView></sheetViews>' +
+        '<sheetFormatPr defaultRowHeight="15"/>' +
+        '<cols>' +
+        widths.map((w, i) => `<col min="${i + 1}" max="${i + 1}" width="${w}" customWidth="1"/>`).join('') +
+        '</cols>' +
+        '<sheetData>';
+
+    const HEADERS = ['Номер документа', '№ задания', 'ФОТО ТОВАРА', 'Наименование ЛК', 'Наименование 1С', 'Артикул продавца', 'Стикер', 'Этикетка'];
+    const cellText = (col, rowIdx, value) =>
+        `<c r="${col}${rowIdx}" s="2" t="inlineStr"><is><t xml:space="preserve">${escapeXml(value)}</t></is></c>`;
+    const cellEmpty = (col, rowIdx) => `<c r="${col}${rowIdx}" s="2"/>`;
+    const cellNumber = (col, rowIdx, value) =>
+        `<c r="${col}${rowIdx}" s="2"><v>${escapeXml(value)}</v></c>`;
+    // Стикер: основная часть обычным, последние 4 цифры жирным
+    const cellSticker = (col, rowIdx, value) => {
+        const main = value.slice(0, -4);
+        const last4 = value.slice(-4);
+        const rpr = (bold) => `<rPr>${bold ? '<b/>' : ''}<sz val="11"/><rFont val="Calibri"/></rPr>`;
+        return `<c r="${col}${rowIdx}" s="2" t="inlineStr"><is>` +
+            `<r>${rpr(false)}<t xml:space="preserve">${escapeXml(main)}</t></r>` +
+            `<r>${rpr(true)}<t xml:space="preserve">${escapeXml(last4)}</t></r>` +
+            `</is></c>`;
     };
-    const rgbOf = (bg) => bg ? PDFLib.rgb(bg[0] / 255, bg[1] / 255, bg[2] / 255) : PDFLib.rgb(1, 1, 1);
 
-    for (let p = 0; p < pages.length; p++) {
-        const g = pages[p];
-        if (!g.bounds || !g.anchorYs.length) continue;
-        const page = doc.getPage(p);
-        const brandX = xOf(g.bounds, 'brand');
-        const nameX = xOf(g.bounds, 'name');
-        const sizeX = xOf(g.bounds, 'size');
-        const colorX = xOf(g.bounds, 'color');
-        const articleX = xOf(g.bounds, 'article');
-        if (brandX == null || nameX == null || sizeX == null || colorX == null || articleX == null) continue;
+    sheet += `<row r="1" ht="24" customHeight="1">` +
+        HEADERS.map((h, i) => `<c r="${String.fromCharCode(65 + i)}1" s="1" t="inlineStr"><is><t>${escapeXml(h)}</t></is></c>`).join('') +
+        `</row>`;
 
-        const ys = g.anchorYs; // сверху вниз
-        const halfGap = (i) => {
-            const up = i === 0 ? (ys[0].y - (ys[1] ? ys[1].y : ys[0].y - 56)) : (ys[i - 1].y - ys[i].y) / 2;
-            const down = ys[i + 1] ? (ys[i].y - ys[i + 1].y) / 2 : up;
-            return { up: Math.min(up, 40), down: Math.min(down, 40) };
-        };
-        const tableBottom = ys[ys.length - 1].y - halfGap(ys.length - 1).down - 20;
-        const white = PDFLib.rgb(1, 1, 1);
+    rows.forEach((r, i) => {
+        const rn = i + 2;
+        sheet += `<row r="${rn}"${(r.photo || r.label) ? ' ht="128" customHeight="1"' : ''}>`;
+        sheet += cellText('A', rn, r.docNum || '');
+        sheet += cellText('B', rn, r.num);
+        sheet += cellEmpty('C', rn); // фото — картинкой
+        sheet += cellText('D', rn, r.name || '');
+        sheet += cellText('E', rn, r.name1c || '');
+        if (/^\d+$/.test(r.article)) sheet += cellNumber('F', rn, r.article);
+        else sheet += cellText('F', rn, r.article || '');
+        if (r.sticker) sheet += cellSticker('G', rn, r.sticker);
+        else sheet += cellEmpty('G', rn);
+        sheet += cellEmpty('H', rn); // этикетка — картинкой
+        sheet += `</row>`;
+    });
 
-        // 1) шапка: убираем «Бренд», «Наименование» центрируем шире,
-        //    «Размер»+«Цвет» превращаем в «Наименование из 1С»
-        if (g.headerY != null) {
-            page.drawRectangle({ x: brandX - 1, y: g.headerY - 9, width: (sizeX - brandX) + 2, height: 18, color: white });
-            page.drawRectangle({ x: sizeX - 1, y: g.headerY - 9, width: (articleX - sizeX) + 2, height: 18, color: white });
-            const putHead = (lines, x0, x1, baseY, size) => {
-                const lh = size * 1.15;
-                let ty = baseY + ((lines.length - 1) * lh) / 2;
-                for (const ln of lines) {
-                    const w = fBold.widthOfTextAtSize(ln, size);
-                    page.drawText(ln, { x: x0 + ((x1 - x0) - w) / 2, y: ty, size: size, font: fBold, color: BLACK });
-                    ty -= lh;
-                }
-            };
-            putHead(['Наименование'], brandX, sizeX, g.headerY - 1, MOD_NAME_SIZE);
-            putHead(['Наименование', 'из 1С'], sizeX, articleX, g.headerY - 1, 7.5);
-        }
-        // вертикальные линии, которые мешают объединённым колонкам:
-        // Бренд|Наименование и Размер|Цвет — на всей высоте таблицы
-        page.drawRectangle({ x: nameX - 5.5, y: tableBottom, width: 6.5, height: (g.headerY != null ? g.headerY - 12 : ys[0].y + 20) - tableBottom, color: white });
-        page.drawRectangle({ x: colorX - 5.5, y: tableBottom, width: 6.5, height: (g.headerY != null ? g.headerY - 12 : ys[0].y + 20) - tableBottom, color: white });
+    sheet += `</sheetData><autoFilter ref="A1:H${n + 1}"/>`;
+    if (imgs.length) sheet += '<drawing r:id="rId1"/>';
+    sheet += '</worksheet>';
+    zip.file('xl/worksheets/sheet1.xml', sheet);
 
-        // 2) строки: закрашиваем старый текст цветом фона строки (строки в
-        //    исходнике чередуются серым/белым), рисуем новые тексты
-        for (let i = 0; i < ys.length; i++) {
-            const row = rowByNum.get(ys[i].num);
-            if (!row) continue;
-            const { up, down } = halfGap(i);
-            const aY = ys[i].y;
-            // заплатка до самой линейки строки (не доходим 0.5pt), чтобы
-            // вертикальные белые полосы не торчали по краям
-            const bandTop = Math.min(up - 0.5, 24.5);
-            const bandBot = Math.min(down - 0.5, 24.5);
-            const bandH = bandTop + bandBot;
-            const bandY = aY - bandBot;
-            // объединённая колонка «Наименование» (бывш. Бренд + Наименование)
-            page.drawRectangle({ x: brandX - 1.5, y: bandY, width: (sizeX - brandX) + 0.5, height: bandH, color: rgbOf(ys[i].bgName) });
-            const nmW = (sizeX - brandX) - 10;
-            const nmLines = wrapMin2(row.name, fReg, MOD_NAME_SIZE, nmW, 3);
-            const nmLh = MOD_NAME_SIZE * 1.18;
-            let ty = aY + ((nmLines.length - 1) * nmLh) / 2;
-            for (const ln of nmLines) {
-                page.drawText(ln, { x: brandX + 5, y: ty, size: MOD_NAME_SIZE, font: fReg, color: BLACK });
-                ty -= nmLh;
-            }
-            // колонка «Наименование из 1С» (бывш. Размер + Цвет)
-            page.drawRectangle({ x: sizeX + 0.5, y: bandY, width: (articleX - sizeX) - 1.5, height: bandH, color: rgbOf(ys[i].bgSize) });
-            if (row.name1c) {
-                const cW = (articleX - sizeX) - 10;
-                const cLines = wrapMin2(row.name1c, fReg, MOD_1C_SIZE, cW, 4);
-                const cLh = MOD_1C_SIZE * 1.18;
-                let cy = aY + ((cLines.length - 1) * cLh) / 2;
-                for (const ln of cLines) {
-                    const w = fReg.widthOfTextAtSize(ln, MOD_1C_SIZE);
-                    page.drawText(ln, { x: sizeX + 5 + (cW - w) / 2, y: cy, size: MOD_1C_SIZE, font: fReg, color: BLACK });
-                    cy -= cLh;
-                }
-            }
-        }
-    }
-    return await doc.save();
-}
-
-/* ============================ Сортировка ШК (pdf-lib) ============================ */
-
-async function buildShkPdf(rows, shk) {
-    const src = await PDFLib.PDFDocument.load(shk.bytes);
-    const order = [];
-    const used = new Set();
-    for (const r of rows) {
-        const pi = shk.bySticker.get(normKey(r.sticker));
-        if (pi != null && !used.has(pi)) { order.push(pi); used.add(pi); }
-    }
-    const rest = [];
-    for (let i = 0; i < src.getPageCount(); i++) if (!used.has(i)) rest.push(i);
-    const out = await PDFLib.PDFDocument.create();
-    const pages = await out.copyPages(src, order.concat(rest)); // одним вызовом
-    pages.forEach(p => out.addPage(p));
-    return await out.save();
+    return zip.generateAsync({ type: 'blob', compression: 'DEFLATE', compressionOptions: { level: 6 } });
 }
 
 /* ============================ Сборка ============================ */
 
 async function startBuild() {
-    if (!(listData && shkData && priceData)) return;
+    if (!(listData && shkData && priceData && ordersData)) return;
     const btn = document.getElementById('startBtn');
     btn.disabled = true;
     document.getElementById('resultsSection').classList.add('hidden');
@@ -453,41 +576,26 @@ async function startBuild() {
     setProgress(0, 'Обработка...', '');
 
     try {
-        // склейка: строки листа + наименования из прайса
-        setProgress(12, 'Собираем строки...', '');
+        setProgress(10, 'Собираем строки...', '');
         await new Promise(r => setTimeout(r, 30));
-        const rows = listData.rows.map(r => ({
+        const rows = listData.rows.map((r, i) => ({
             num: r.num,
             name: r.name,
-            color: r.color,
             article: r.article,
             sticker: r.sticker,
-            name1c: priceData.map.get(normKey(r.article)) || ''
+            photo: r.photo,
+            name1c: priceData.map.get(normKey(r.article)) || '',
+            docNum: ordersData.map.get(r.num) || '',
+            label: i < shkData.ordered.length ? shkData.ordered[i] : null
         }));
-        const rowByNum = new Map(rows.map(r => [r.num, r]));
+        const noDoc = rows.filter(r => !r.docNum).length;
         const noName = rows.filter(r => !r.name1c).length;
-        const noLabel = rows.filter(r => !shkData.bySticker.has(normKey(r.sticker))).length;
 
-        // ЛП-1С.pdf — правим исходный лист подбора
-        setProgress(16, 'Формируем ЛП с наименованиями из 1С...', '');
-        const lpBytes = await buildLpModified(listData.bytes, rows, listData.pages, rowByNum);
-        setProgress(86, 'ЛП готов', '');
+        setProgress(15, 'Формируем Excel...', '');
+        const blob = await buildLpXlsx(rows);
+        setProgress(100, 'Готово!', `Строк: ${rows.length} | С номером документа: ${rows.length - noDoc} | Из 1С: ${rows.length - noName} | Этикеток: ${rows.filter(r => r.label).length}`);
 
-        // ШК в порядке листа
-        setProgress(88, 'Сортируем этикетки ШК...', '');
-        const shkBytes = await buildShkPdf(rows, {
-            bytes: shkData.bytes,
-            bySticker: shkData.bySticker
-        });
-        setProgress(100, 'Готово!', `Строк: ${rows.length} | Из 1С: ${rows.length - noName} | Этикеток по порядку: ${rows.length - noLabel}`);
-
-        built = {
-            rows: rows,
-            lpBlob: new Blob([lpBytes], { type: 'application/pdf' }),
-            shkBlob: new Blob([shkBytes], { type: 'application/pdf' }),
-            noName: noName,
-            noLabel: noLabel
-        };
+        built = { rows, blob, noDoc, noName };
         showResults();
     } catch (err) {
         console.error(err);
@@ -500,37 +608,44 @@ async function startBuild() {
 /* ============================ Результаты ============================ */
 
 function showResults() {
-    const { rows, noName, noLabel } = built;
-    const withName = rows.length - noName;
-    const withLabel = rows.length - noLabel;
+    const { rows, noDoc, noName } = built;
 
     document.getElementById('summary').innerHTML = `
         <div class="summary-card ok">
             <span class="num">${rows.length}</span>
             <div class="lbl">Строк в листе</div>
         </div>
+        <div class="summary-card ${noDoc ? 'warn' : 'ok'}">
+            <span class="num">${rows.length - noDoc}</span>
+            <div class="lbl">С номером документа</div>
+        </div>
         <div class="summary-card ${noName ? 'warn' : 'ok'}">
-            <span class="num">${withName}</span>
+            <span class="num">${rows.length - noName}</span>
             <div class="lbl">С наименованием из 1С</div>
         </div>
-        <div class="summary-card ${noLabel ? 'warn' : 'ok'}">
-            <span class="num">${withLabel}</span>
-            <div class="lbl">Этикеток по порядку</div>
+        <div class="summary-card ok">
+            <span class="num">${rows.filter(r => r.photo).length}</span>
+            <div class="lbl">С фото товара</div>
         </div>
     `;
 
     let warnHtml = '';
+    if (noDoc) {
+        const nums = rows.filter(r => !r.docNum).map(r => r.num).slice(0, 10).join(', ');
+        warnHtml += `<p><strong>⚠️ ${noDoc} задани(й) без «Номера документа»</strong> — не нашлись в заказах МБТ 30 по «Идентификатору МП»: ${nums}${noDoc > 10 ? ' …' : ''}</p>`;
+    }
     if (noName) {
         const arts = rows.filter(r => !r.name1c).map(r => r.article).slice(0, 10).join(', ');
-        warnHtml += `<p><strong>⚠️ ${noName} артикул(ов) не нашлось в прайсе</strong> — столбик «Наименование из 1С» будет пустым: ${arts}${noName > 10 ? ' …' : ''}</p>`;
+        warnHtml += `<p><strong>⚠️ ${noName} артикул(ов) не нашлось в прайсе</strong> — «Наименование 1С» останется пустым: ${arts}${noName > 10 ? ' …' : ''}</p>`;
     }
-    if (noLabel) {
-        const nums = rows.filter(r => !shkData.bySticker.has(normKey(r.sticker))).map(r => r.num).slice(0, 10).join(', ');
-        warnHtml += `<p><strong>⚠️ ${noLabel} задани(й) без этикетки</strong> — стикер из листа не совпал с PDF этикеток: ${nums}${noLabel > 10 ? ' …' : ''}</p>`;
+    const noPhoto = rows.filter(r => !r.photo).length;
+    if (noPhoto) {
+        warnHtml += `<p><strong>ℹ️ ${noPhoto} строк(ы) без фото товара</strong> — в PDF не нашлась картинка для этих строк.</p>`;
     }
-    const extra = shkData.pages - (rows.length - noLabel);
-    if (extra > 0) {
-        warnHtml += `<p><strong>ℹ️ ${extra} страниц(ы) этикеток не совпали со строками листа</strong> — добавлены в конец отсортированного файла.</p>`;
+    if (shkData.pages < rows.length) {
+        warnHtml += `<p><strong>⚠️ Этикеток (${shkData.pages}) меньше, чем строк (${rows.length})</strong> — последние строки останутся без картинки.</p>`;
+    } else if (shkData.pages > rows.length) {
+        warnHtml += `<p><strong>ℹ️ Этикеток (${shkData.pages}) больше, чем строк (${rows.length})</strong> — лишние не вошли.</p>`;
     }
     if (warnHtml) {
         document.getElementById('warningsBox').innerHTML = warnHtml;
@@ -556,21 +671,18 @@ function showResults() {
 function renderPreview() {
     const { rows } = built;
     const limit = showAllMode ? rows.length : Math.min(rows.length, 100);
-    let band = false;
-    let prevName = null;
-    document.getElementById('resultsBody').innerHTML = rows.slice(0, limit).map(r => {
-        if (r.name !== prevName) { band = !band; prevName = r.name; }
-        return `
-        <tr class="${band ? 'band' : ''}">
+    document.getElementById('resultsBody').innerHTML = rows.slice(0, limit).map(r => `
+        <tr>
+            <td>${r.docNum || '—'}</td>
             <td>${r.num}</td>
-            <td>${r.article || '—'}</td>
             <td class="name-cell">${r.name || '—'}</td>
             <td class="name-cell">${r.name1c || '—'}</td>
+            <td>${r.article || '—'}</td>
             <td>${r.sticker ? r.sticker.replace(/(\d{4})$/, '<b>$1</b>') : '—'}</td>
-        </tr>`;
-    }).join('') +
+            <td>${r.photo ? '✓' : '—'}</td>
+        </tr>`).join('') +
     (limit < rows.length
-        ? `<tr><td colspan="5" style="text-align:center; color:#86868b;">… и ещё ${rows.length - limit} строк</td></tr>`
+        ? `<tr><td colspan="7" style="text-align:center; color:#86868b;">… и ещё ${rows.length - limit} строк</td></tr>`
         : '');
 }
 
@@ -590,13 +702,11 @@ function download(blob, filename) {
 
 /* ============================ Инициализация ============================ */
 
-document.getElementById('downloadLpBtn').addEventListener('click', () => {
-    if (built) download(built.lpBlob, 'ЛП с наименованиями из 1С.pdf');
-});
-document.getElementById('downloadShkBtn').addEventListener('click', () => {
-    if (built) download(built.shkBlob, 'ШК по порядку листа.pdf');
+document.getElementById('downloadBtn').addEventListener('click', () => {
+    if (built) download(built.blob, 'Лист подбора.xlsx');
 });
 
-wireUpload('listUploadArea', 'listFileInput', handleList);
+wireUpload('docxUploadArea', 'docxFileInput', handleListPdf);
 wireUpload('shkUploadArea', 'shkFileInput', handleShk);
 wireUpload('priceUploadArea', 'priceFileInput', handlePrice);
+wireUpload('ordersUploadArea', 'ordersFileInput', handleOrders);

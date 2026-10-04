@@ -3,22 +3,22 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>ЛП ВБ с картинками и наименованиями из 1С — Wildberries</title>
+    <title>ЛП ВБ с картинками и 1С — Wildberries</title>
     <link rel="stylesheet" href="styles.css">
     <link rel="stylesheet" href="../../../assets/site.css?v=2">
     <link rel="stylesheet" href="../../../assets/themes.css">
     <script>try{document.documentElement.setAttribute("data-theme",localStorage.getItem("ra-theme")||"light")}catch(e){}</script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf-lib/1.17.1/pdf-lib.min.js"></script>
 </head>
 <body>
     <div class="container">
         <button class="back-btn" onclick="window.location.href='../../../index.html'">← В меню</button>
 
         <div class="sverka-header">
-            <h2>🖼️ ЛП ВБ с картинками и наименованиями из 1С</h2>
-            <p class="subtitle">Правим исходный Лист подбора: «Бренд» → «Наименование», «Размер» → «Наименование из 1С» + ШК по порядку листа • Wildberries</p>
+            <h2>🖼️ ЛП ВБ с картинками и 1С</h2>
+            <p class="subtitle">Лист подбора PDF + этикетки ШК PDF + прайс 1С + заказы МБТ 30 • на выходе Excel с фото и этикетками</p>
         </div>
 
         <div class="pack-layout">
@@ -29,14 +29,14 @@
                     <h3>📄 Лист подбора (PDF)</h3>
                 </div>
                 <div class="panel-body">
-                    <div class="upload-area" id="listUploadArea">
-                        <p class="area-desc">Загрузите <strong>печатный Лист подбора</strong> (PDF из ЛК) —<br>фото и оформление останутся, поменяем только столбики</p>
-                        <input type="file" id="listFileInput" accept=".pdf" style="display:none">
-                        <button class="upload-btn" onclick="document.getElementById('listFileInput').click()">⬆️ Выбрать PDF</button>
+                    <div class="upload-area" id="docxUploadArea">
+                        <p class="area-desc">Загрузите <strong>печатный Лист подбора</strong> (PDF из ЛК) —<br>фото возьмём прямо из PDF в идеальном качестве</p>
+                        <input type="file" id="docxFileInput" accept=".pdf" style="display:none">
+                        <button class="upload-btn" onclick="document.getElementById('docxFileInput').click()">⬆️ Выбрать PDF</button>
                         <p class="hint">или перетащите файл сюда</p>
-                        <p id="listFileName" class="file-name"></p>
+                        <p id="docxFileName" class="file-name"></p>
                     </div>
-                    <div id="listStatus" class="status">Обязательно: задаёт порядок строк и фото</div>
+                    <div id="docxStatus" class="status">Обязательно: фото, наименования, артикулы и стикеры</div>
                 </div>
             </div>
 
@@ -47,13 +47,13 @@
                 </div>
                 <div class="panel-body">
                     <div class="upload-area" id="shkUploadArea">
-                        <p class="area-desc">Загрузите <strong>PDF со стикерами ШК</strong> —<br>страницы отсортируем в порядке листа подбора</p>
+                        <p class="area-desc">Загрузите <strong>PDF со стикерами ШК</strong> —<br>картинки встанут в колонку «Этикетка» (порядок уже совпадает с листом)</p>
                         <input type="file" id="shkFileInput" accept=".pdf" style="display:none">
                         <button class="upload-btn" onclick="document.getElementById('shkFileInput').click()">⬆️ Выбрать PDF</button>
                         <p class="hint">или перетащите файл сюда</p>
                         <p id="shkFileName" class="file-name"></p>
                     </div>
-                    <div id="shkStatus" class="status">Обязательно: источник этикеток для сортировки</div>
+                    <div id="shkStatus" class="status">Обязательно: картинки для колонки «Этикетка»</div>
                 </div>
             </div>
 
@@ -64,7 +64,7 @@
                 </div>
                 <div class="panel-body">
                     <div class="upload-area" id="priceUploadArea">
-                        <p class="area-desc">Загрузите <strong>прайс 1С</strong> —<br>по артикулу заполнится столбик «Наименование из 1С»</p>
+                        <p class="area-desc">Загрузите <strong>прайс 1С</strong> —<br>по артикулу заполнится столбик «Наименование 1С»</p>
                         <input type="file" id="priceFileInput" accept=".xlsx,.xls" style="display:none">
                         <button class="upload-btn" onclick="document.getElementById('priceFileInput').click()">⬆️ Выбрать Excel</button>
                         <p class="hint">или перетащите файл сюда</p>
@@ -73,9 +73,26 @@
                     <div id="priceStatus" class="status">Обязательно: первый столбик — артикул, второй — название</div>
                 </div>
             </div>
+
+            <!-- Плашка: заказы МБТ 30 -->
+            <div class="panel upload-panel">
+                <div class="panel-header">
+                    <h3>📦 Заказы МБТ 30 (Excel)</h3>
+                </div>
+                <div class="panel-body">
+                    <div class="upload-area" id="ordersUploadArea">
+                        <p class="area-desc">Загрузите <strong>файл заказов</strong> —<br>по «Идентификатору МП» возьмём «Номер документа»</p>
+                        <input type="file" id="ordersFileInput" accept=".xlsx,.xls" style="display:none">
+                        <button class="upload-btn" onclick="document.getElementById('ordersFileInput').click()">⬆️ Выбрать Excel</button>
+                        <p class="hint">или перетащите файл сюда</p>
+                        <p id="ordersFileName" class="file-name"></p>
+                    </div>
+                    <div id="ordersStatus" class="status">Обязательно: столбики «Идентификатор МП» и «Номер документа»</div>
+                </div>
+            </div>
         </div>
 
-        <button class="start-btn" onclick="startBuild()" id="startBtn" disabled>📦 СОБРАТЬ ДВА PDF-ФАЙЛА</button>
+        <button class="start-btn" onclick="startBuild()" id="startBtn" disabled>📦 СОБРАТЬ ЛИСТ ПОДБОРА (EXCEL)</button>
 
         <div id="progressSection" class="progress-section hidden">
             <div class="progress-stats">
@@ -94,14 +111,13 @@
             <h3>📊 Результат</h3>
             <div class="summary" id="summary"></div>
             <div class="download-row">
-                <button class="export-btn primary" id="downloadLpBtn">📥 Скачать ЛП с наименованиями из 1С (PDF)</button>
-                <button class="export-btn primary" id="downloadShkBtn">📥 Скачать ШК по порядку листа (PDF)</button>
+                <button class="export-btn primary" id="downloadBtn">📥 Скачать Лист подбора (Excel)</button>
             </div>
             <h4 class="preview-title">Предпросмотр строк</h4>
             <div class="table-wrapper">
                 <table>
                     <thead>
-                        <tr><th>№ задания</th><th>Артикул</th><th>Наименование</th><th>Наименование из 1С</th><th>Стикер</th></tr>
+                        <tr><th>Номер документа</th><th>№ задания</th><th>Наименование ЛК</th><th>Наименование 1С</th><th>Артикул</th><th>Стикер</th><th>Фото</th></tr>
                     </thead>
                     <tbody id="resultsBody"></tbody>
                 </table>
@@ -110,9 +126,6 @@
         </div>
     </div>
 
-    <script src="../../../data/yandex-market/podpis-etiketok/font-data.js?v=2"></script>
-    <script src="../../../data/yandex-market/podpis-etiketok/font-data-bold.js?v=2"></script>
-    <script src="../../../data/yandex-market/podpis-etiketok/fontkit.local.js?v=2"></script>
     <script src="script.js"></script>
 
     <script src="../../../assets/audio.js?v=4"></script>
