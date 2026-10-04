@@ -94,20 +94,24 @@ function wrapText(text, font, size, maxW, maxLines) {
 
 /* Колонки листа подбора: № задания | Фото | Бренд | Наименование | Размер |
    Цвет | Артикул продавца | Стикер. Границы колонок берём из шапки,
-   текст раскладываем по колонкам и по ближайшей строке (номер задания). */
+   текст раскладываем по колонкам и по ближайшей строке (номер задания).
+   Здесь же собираем геометрию страниц — она нужна, чтобы дорисовать
+   «Наименование из 1С» прямо в исходном PDF. */
 async function handleList(file) {
     document.getElementById('listFileName').textContent = file.name;
-    setStatus('listStatus', '⏳ Читаем PDF и вырезаем фото...', '');
+    setStatus('listStatus', '⏳ Читаем PDF...', '');
     try {
         const buf = new Uint8Array(await file.arrayBuffer());
+        const bytesKeep = new Uint8Array(buf); // копия до передачи pdf.js — для pdf-lib
         const doc = await pdfjsLib.getDocument({ data: buf }).promise;
         const rows = [];              // в порядке листа
         const seen = new Set();
+        const pageGeoms = [];         // {anchorYs, bounds, headerY} на страницу
         const meta = { title: '', date: '', count: '' };
         let bounds = null, headerY = null;
 
         for (let p = 1; p <= doc.numPages; p++) {
-            setProgress(Math.round(5 + p / doc.numPages * 35), 'Чтение листа подбора: стр. ' + p + '/' + doc.numPages, '');
+            setProgress(Math.round(5 + p / doc.numPages * 30), 'Чтение листа подбора: стр. ' + p + '/' + doc.numPages, '');
             const page = await doc.getPage(p);
             const tc = await page.getTextContent();
 
@@ -162,7 +166,6 @@ async function handleList(file) {
             if (!anchors.length) continue;
             anchors.sort((a, b) => b.y - a.y); // сверху вниз
 
-            //_buckets: текст по колонкам относительно ближайшего якоря
             const buckets = new Map();
             for (const a of anchors) buckets.set(a.num, { name: [], color: [], article: [], sticker: [] });
             for (const it of items) {
@@ -190,63 +193,47 @@ async function handleList(file) {
                     name: joinYX(c.name),
                     color: joinYX(c.color),
                     article: article,
-                    sticker: sticker,
-                    photo: null,
-                    pageY: null, pageIdx: 0
+                    sticker: sticker
                 });
             }
-
-            // рендер страницы для вырезки фото
-            const vp = page.getViewport({ scale: 2 });
-            const canvas = document.createElement('canvas');
-            canvas.width = Math.floor(vp.width);
-            canvas.height = Math.floor(vp.height);
-            const ctx = canvas.getContext('2d', { alpha: false });
-            ctx.fillStyle = '#ffffff';
-            ctx.fillRect(0, 0, canvas.width, canvas.height);
-            await page.render({ canvasContext: ctx, viewport: vp }).promise;
-
-            // границы колонок «Фото» и следующей за ней
-            const ph = bounds.find(b => b.name === 'photo');
-            const phIdx = bounds.indexOf(ph);
-            const x0 = ph ? ph.x - 2 : 0;
-            const x1 = (phIdx >= 0 && phIdx + 1 < bounds.length) ? bounds[phIdx + 1].x - 2 : vp.width / 2;
-            const s = 2, pageH = page.getViewport({ scale: 1 }).height;
-
-            anchors.forEach((a, i) => {
-                if (seen.has(a.num) === false) return;
-                // строка: от середины до соседа сверху до середины до соседа снизу
-                const up = i === 0 ? (anchors[0].y - (anchors[1] ? anchors[1].y : anchors[0].y - 60)) : (anchors[i - 1].y - a.y) / 2;
-                const down = (i + 1 < anchors.length) ? (a.y - anchors[i + 1].y) / 2 : up;
-                let top = a.y + Math.min(up, 40) - 2;
-                let bottom = a.y - Math.min(down, 40) + 2;
-                const sx = Math.max(0, Math.floor(x0 * s));
-                const sw = Math.max(4, Math.floor((x1 - x0) * s));
-                const sy = Math.max(0, Math.floor((pageH - top) * s));
-                const sh = Math.max(4, Math.floor((top - bottom) * s));
-                const cw = Math.min(canvas.width - sx, sw), ch = Math.min(canvas.height - sy, sh);
-                if (cw <= 4 || ch <= 4) return;
-                const cc = document.createElement('canvas');
-                cc.width = cw; cc.height = ch;
-                const cctx = cc.getContext('2d', { alpha: false });
-                cctx.fillStyle = '#ffffff';
-                cctx.fillRect(0, 0, cw, ch);
-                cctx.drawImage(canvas, sx, sy, cw, ch, 0, 0, cw, ch);
-                const dataUrl = cc.toDataURL('image/jpeg', 0.82);
-                const row = rows.find(r => r.num === a.num);
-                if (row && !row.photo) {
-                    row.photo = {
-                        bytes: Uint8Array.from(atob(dataUrl.split(',')[1]), ch2 => ch2.charCodeAt(0)),
-                        w: cw, h: ch, url: dataUrl
-                    };
-                    row.pageY = p;
-                }
+            pageGeoms.push({
+                anchorYs: anchors.map(a => ({ y: a.y, num: a.num, bgName: null, bgSize: null })),
+                bounds: bounds.map(b => ({ name: b.name, x: b.x })),
+                headerY: headerY
             });
+
+            // цвета фона строк (в исходнике строки чередуются серым/белым —
+            // заплатки должны совпадать по цвету). Рендерим страницу в мелком
+            // масштабе и снимаем цвет правее текста, у края колонки.
+            try {
+                const sLow = 0.4;
+                const vpLow = page.getViewport({ scale: sLow });
+                const cv = document.createElement('canvas');
+                cv.width = Math.max(2, Math.floor(vpLow.width));
+                cv.height = Math.max(2, Math.floor(vpLow.height));
+                const cctx = cv.getContext('2d', { alpha: false });
+                cctx.fillStyle = '#ffffff';
+                cctx.fillRect(0, 0, cv.width, cv.height);
+                await page.render({ canvasContext: cctx, viewport: vpLow }).promise;
+                const pageH = page.getViewport({ scale: 1 }).height;
+                const xB = bounds.find(b => b.name === 'size');
+                const xA = bounds.find(b => b.name === 'article');
+                const geo = pageGeoms[pageGeoms.length - 1];
+                for (const a of geo.anchorYs) {
+                    const sample = (xPt) => {
+                        const px = Math.min(cv.width - 1, Math.max(0, Math.round(xPt * sLow)));
+                        const py = Math.min(cv.height - 1, Math.max(0, Math.round((pageH - a.y - 17) * sLow)));
+                        const d = cctx.getImageData(px, py, 1, 1).data;
+                        return [d[0], d[1], d[2]];
+                    };
+                    if (xB) a.bgName = sample(xB.x - 8);   // край колонки «Размер» — зона имени
+                    if (xA) a.bgSize = sample(xA.x - 8);   // край колонки «Артикул» — зона 1С
+                }
+            } catch (e) { /* нет канваса — заплатки будут белыми */ }
         }
         if (!rows.length) throw new Error('не нашли ни одного задания в PDF');
-        // порядок строк = порядок листа (якоря собирались постранично сверху вниз)
-        listData = { rows: rows, meta: meta, name: file.name };
-        setStatus('listStatus', `✅ Строк: ${rows.length} (фото: ${rows.filter(r => r.photo).length})`, 'success');
+        listData = { rows: rows, meta: meta, pages: pageGeoms, bytes: bytesKeep, name: file.name };
+        setStatus('listStatus', `✅ Строк: ${rows.length}`, 'success');
     } catch (err) {
         listData = null;
         setStatus('listStatus', '❌ Ошибка: ' + err.message, 'error');
@@ -312,146 +299,128 @@ async function handlePrice(file) {
     updateStartBtn();
 }
 
-/* ============================ Генерация ЛП-1С (pdf-lib) ============================ */
+/* ============================ Модификация исходного ЛП (pdf-lib) ============================ */
 
-/* A4 альбомная. Колонки: № | Фото | Наименование | Наименование из 1С |
-   Цвет | Артикул | Стикер («Бренд» и «Размер» из исходного листа убраны). */
-const COLS = [
-    { key: 'num',    title: '№ задания', w: 68 },
-    { key: 'photo',  title: 'Фото', w: 58 },
-    { key: 'name',   title: 'Наименование', w: 237 },
-    { key: 'name1c', title: 'Наименование из 1С', w: 237 },
-    { key: 'color',  title: 'Цвет', w: 55 },
-    { key: 'article',title: 'Артикул', w: 62 },
-    { key: 'sticker',title: 'Стикер', w: 89 }
-];
-const PAGE_W = 841.89, PAGE_H = 595.28, MARGIN = 18;
-const ROW_H = 56, HEAD_H = 30;
+/* Не перерисовываем таблицу, а правим исходный PDF:
+   — столбик «Бренд» убираем (закрашиваем), «Наименование» переезжает на его
+     место и становится шире (минимум 2 строки);
+   — столбик «Размер» превращаем в «Наименование из 1С» (по артикулу из прайса);
+   — фото, сетка, номера, артикулы, стикеры и заголовок листа остаются родными. */
 
-async function buildLpPdf(rows, meta, onProgress) {
-    const out = await PDFLib.PDFDocument.create();
-    out.registerFontkit(window.fontkit);
-    const fReg = await out.embedFont(b64ToBytes(window.DEJAVU_FONT_B64), { subset: true });
-    const fBold = await out.embedFont(b64ToBytes(window.DEJAVU_BOLD_FONT_B64), { subset: true });
+const MOD_NAME_SIZE = 8;    // шрифт наименований
+const MOD_1C_SIZE = 7.5;    // шрифт наименований из 1С
+const BLACK = PDFLib.rgb(0.13, 0.13, 0.13);
 
-    const tableW = COLS.reduce((s, c) => s + c.w, 0);
-    const xs = [];
-    let acc = MARGIN;
-    for (const c of COLS) { xs.push(acc); acc += c.w; }
-
-    let page = null;
-    let y = 0;
-    let pageNo = 0;
-
-    const newPage = () => {
-        page = out.addPage([PAGE_W, PAGE_H]);
-        pageNo++;
-        y = PAGE_H - MARGIN;
-        // шапка листа
-        const head = [meta.title, meta.date, meta.count].filter(Boolean).join('   •   ');
-        if (head) {
-            page.drawText(head, { x: MARGIN, y: y - 11, size: 9.5, font: fReg, color: PDFLib.rgb(0.25, 0.25, 0.25) });
-        }
-        page.drawText('стр. ' + pageNo, { x: PAGE_W - MARGIN - 34, y: y - 11, size: 9.5, font: fReg, color: PDFLib.rgb(0.45, 0.45, 0.45) });
-        y -= 24;
-        // тёмная шапка таблицы
-        page.drawRectangle({ x: MARGIN, y: y - HEAD_H, width: tableW, height: HEAD_H, color: PDFLib.rgb(0.25, 0.25, 0.25) });
-        COLS.forEach((c, i) => {
-            const lines = wrapText(c.title, fBold, 9, c.w - 8, 2);
-            const lh = 9 * 1.15;
-            const topPad = (HEAD_H - lines.length * lh) / 2;
-            let ty = y - topPad - 8.4;
-            for (const ln of lines) {
-                page.drawText(ln, { x: xs[i] + 4, y: ty, size: 9, font: fBold, color: PDFLib.rgb(1, 1, 1) });
-                ty -= lh;
-            }
-        });
-        y -= HEAD_H;
-    };
-
-    newPage();
-
-    // чередование полос по блокам одинаковых наименований
-    const bands = [];
-    let band = false, prevName = null;
-    for (const r of rows) {
-        if (r.name !== prevName) { band = !band; prevName = r.name; }
-        bands.push(band);
+/* Перенос текста; если влезло в одну строку — делим на две сбалансированные */
+function wrapMin2(text, font, size, maxW, maxLines) {
+    const lines = wrapText(text, font, size, maxW, maxLines);
+    if (lines.length > 1 || lines.length === 0) return lines;
+    const words = String(text).split(/\s+/).filter(Boolean);
+    if (words.length < 2) return lines;
+    let best = 1, bestDiff = Infinity;
+    for (let k = 1; k < words.length; k++) {
+        const w1 = font.widthOfTextAtSize(words.slice(0, k).join(' '), size);
+        const w2 = font.widthOfTextAtSize(words.slice(k).join(' '), size);
+        const diff = Math.abs(w1 - w2);
+        if (w1 <= maxW && w2 <= maxW && diff < bestDiff) { bestDiff = diff; best = k; }
     }
+    if (best === words.length) return lines;
+    return [words.slice(0, best).join(' '), words.slice(best).join(' ')];
+}
 
-    const drawRow = async (r, i) => {
-        if (y - ROW_H < MARGIN) {
-            // горизонталь до низа и новая страница
-            page.drawLine({ start: { x: MARGIN, y: MARGIN }, end: { x: MARGIN + tableW, y: MARGIN }, thickness: 0.7, color: PDFLib.rgb(0.6, 0.6, 0.6) });
-            newPage();
-        }
-        if (bands[i]) {
-            page.drawRectangle({ x: MARGIN, y: y - ROW_H, width: tableW, height: ROW_H, color: PDFLib.rgb(0.937, 0.937, 0.937) });
-        }
-        // сетка строки: вертикали поверх заливки
-        xs.forEach(x => page.drawLine({ start: { x: x, y: y }, end: { x: x, y: y - ROW_H }, thickness: 0.7, color: PDFLib.rgb(0.6, 0.6, 0.6) }));
-        page.drawLine({ start: { x: MARGIN + tableW, y: y }, end: { x: MARGIN + tableW, y: y - ROW_H }, thickness: 0.7, color: PDFLib.rgb(0.6, 0.6, 0.6) });
-        const top = y;
-        const put = (col, text, opts) => {
-            const ci = COLS.findIndex(c => c.key === col);
-            const size = (opts && opts.size) || 8.5;
-            const font = (opts && opts.bold) ? fBold : fReg;
-            const maxW = COLS[ci].w - 8;
-            const lines = wrapText(text, font, size, maxW, (opts && opts.maxLines) || 3);
-            const lh = size * 1.18;
-            let ty = top - (ROW_H - lines.length * lh) / 2 - size;
-            for (const ln of lines) {
-                page.drawText(ln, { x: xs[ci] + 4, y: ty, size: size, font: font, color: PDFLib.rgb(0.1, 0.1, 0.1) });
-                ty -= lh;
-            }
+async function buildLpModified(srcBytes, rows, pages, rowByNum) {
+    const doc = await PDFLib.PDFDocument.load(srcBytes);
+    doc.registerFontkit(window.fontkit);
+    const fReg = await doc.embedFont(b64ToBytes(window.DEJAVU_FONT_B64), { subset: true });
+    const fBold = await doc.embedFont(b64ToBytes(window.DEJAVU_BOLD_FONT_B64), { subset: true });
+
+    const xOf = (bounds, name) => {
+        const b = bounds.find(x => x.name === name);
+        return b ? b.x : null;
+    };
+    const rgbOf = (bg) => bg ? PDFLib.rgb(bg[0] / 255, bg[1] / 255, bg[2] / 255) : PDFLib.rgb(1, 1, 1);
+
+    for (let p = 0; p < pages.length; p++) {
+        const g = pages[p];
+        if (!g.bounds || !g.anchorYs.length) continue;
+        const page = doc.getPage(p);
+        const brandX = xOf(g.bounds, 'brand');
+        const nameX = xOf(g.bounds, 'name');
+        const sizeX = xOf(g.bounds, 'size');
+        const colorX = xOf(g.bounds, 'color');
+        const articleX = xOf(g.bounds, 'article');
+        if (brandX == null || nameX == null || sizeX == null || colorX == null || articleX == null) continue;
+
+        const ys = g.anchorYs; // сверху вниз
+        const halfGap = (i) => {
+            const up = i === 0 ? (ys[0].y - (ys[1] ? ys[1].y : ys[0].y - 56)) : (ys[i - 1].y - ys[i].y) / 2;
+            const down = ys[i + 1] ? (ys[i].y - ys[i + 1].y) / 2 : up;
+            return { up: Math.min(up, 40), down: Math.min(down, 40) };
         };
-        put('num', r.num, { size: 9 });
-        put('name', r.name, { maxLines: 3 });
-        put('name1c', r.name1c || '', { maxLines: 3 });
-        put('color', r.color, { maxLines: 2 });
-        put('article', r.article, { size: 9 });
-        // стикер: основная часть обычным, последние 4 цифры — жирным
-        if (r.sticker) {
-            const ci = COLS.findIndex(c => c.key === 'sticker');
-            const st = String(r.sticker);
-            const size = 9;
-            const main = st.slice(0, -4), last4 = st.slice(-4);
-            const totalW = fReg.widthOfTextAtSize(main, size) + fBold.widthOfTextAtSize(last4, size);
-            const sx = xs[ci] + (COLS[ci].w - totalW) / 2;
-            const ty = top - ROW_H / 2 - size / 2 + 2.5;
-            page.drawText(main, { x: sx, y: ty, size: size, font: fReg, color: PDFLib.rgb(0.1, 0.1, 0.1) });
-            page.drawText(last4, { x: sx + fReg.widthOfTextAtSize(main, size), y: ty, size: size, font: fBold, color: PDFLib.rgb(0.1, 0.1, 0.1) });
-        }
+        const tableBottom = ys[ys.length - 1].y - halfGap(ys.length - 1).down - 20;
+        const white = PDFLib.rgb(1, 1, 1);
 
-        // фото
-        const pi = COLS.findIndex(c => c.key === 'photo');
-        if (r.photo) {
-            try {
-                const img = await out.embedJpg(r.photo.bytes);
-                const box = 50;
-                const k = Math.min(box / r.photo.w, box / r.photo.h);
-                const dw = r.photo.w * k, dh = r.photo.h * k;
-                page.drawImage(img, {
-                    x: xs[pi] + (COLS[pi].w - dw) / 2,
-                    y: top - ROW_H / 2 - dh / 2,
-                    width: dw, height: dh
-                });
-            } catch (e) { /* не картинка — пропускаем */ }
-        } else {
-            page.drawRectangle({ x: xs[pi] + 5, y: top - ROW_H / 2 - 22, width: COLS[pi].w - 10, height: 44, color: PDFLib.rgb(0.92, 0.92, 0.92) });
+        // 1) шапка: убираем «Бренд», «Наименование» центрируем шире,
+        //    «Размер»+«Цвет» превращаем в «Наименование из 1С»
+        if (g.headerY != null) {
+            page.drawRectangle({ x: brandX - 1, y: g.headerY - 9, width: (sizeX - brandX) + 2, height: 18, color: white });
+            page.drawRectangle({ x: sizeX - 1, y: g.headerY - 9, width: (articleX - sizeX) + 2, height: 18, color: white });
+            const putHead = (lines, x0, x1, baseY, size) => {
+                const lh = size * 1.15;
+                let ty = baseY + ((lines.length - 1) * lh) / 2;
+                for (const ln of lines) {
+                    const w = fBold.widthOfTextAtSize(ln, size);
+                    page.drawText(ln, { x: x0 + ((x1 - x0) - w) / 2, y: ty, size: size, font: fBold, color: BLACK });
+                    ty -= lh;
+                }
+            };
+            putHead(['Наименование'], brandX, sizeX, g.headerY - 1, MOD_NAME_SIZE);
+            putHead(['Наименование', 'из 1С'], sizeX, articleX, g.headerY - 1, 7.5);
         }
-        // горизонтальная линия строки
-        page.drawLine({ start: { x: MARGIN, y: top - ROW_H }, end: { x: MARGIN + tableW, y: top - ROW_H }, thickness: 0.7, color: PDFLib.rgb(0.6, 0.6, 0.6) });
-        y -= ROW_H;
-    };
+        // вертикальные линии, которые мешают объединённым колонкам:
+        // Бренд|Наименование и Размер|Цвет — на всей высоте таблицы
+        page.drawRectangle({ x: nameX - 5.5, y: tableBottom, width: 6.5, height: (g.headerY != null ? g.headerY - 12 : ys[0].y + 20) - tableBottom, color: white });
+        page.drawRectangle({ x: colorX - 5.5, y: tableBottom, width: 6.5, height: (g.headerY != null ? g.headerY - 12 : ys[0].y + 20) - tableBottom, color: white });
 
-    for (let i = 0; i < rows.length; i++) {
-        await drawRow(rows[i], i);
-        if (i % 20 === 0) await new Promise(r2 => setTimeout(r2, 0));
+        // 2) строки: закрашиваем старый текст цветом фона строки (строки в
+        //    исходнике чередуются серым/белым), рисуем новые тексты
+        for (let i = 0; i < ys.length; i++) {
+            const row = rowByNum.get(ys[i].num);
+            if (!row) continue;
+            const { up, down } = halfGap(i);
+            const aY = ys[i].y;
+            // заплатка до самой линейки строки (не доходим 0.5pt), чтобы
+            // вертикальные белые полосы не торчали по краям
+            const bandTop = Math.min(up - 0.5, 24.5);
+            const bandBot = Math.min(down - 0.5, 24.5);
+            const bandH = bandTop + bandBot;
+            const bandY = aY - bandBot;
+            // объединённая колонка «Наименование» (бывш. Бренд + Наименование)
+            page.drawRectangle({ x: brandX - 1.5, y: bandY, width: (sizeX - brandX) + 0.5, height: bandH, color: rgbOf(ys[i].bgName) });
+            const nmW = (sizeX - brandX) - 10;
+            const nmLines = wrapMin2(row.name, fReg, MOD_NAME_SIZE, nmW, 3);
+            const nmLh = MOD_NAME_SIZE * 1.18;
+            let ty = aY + ((nmLines.length - 1) * nmLh) / 2;
+            for (const ln of nmLines) {
+                page.drawText(ln, { x: brandX + 5, y: ty, size: MOD_NAME_SIZE, font: fReg, color: BLACK });
+                ty -= nmLh;
+            }
+            // колонка «Наименование из 1С» (бывш. Размер + Цвет)
+            page.drawRectangle({ x: sizeX + 0.5, y: bandY, width: (articleX - sizeX) - 1.5, height: bandH, color: rgbOf(ys[i].bgSize) });
+            if (row.name1c) {
+                const cW = (articleX - sizeX) - 10;
+                const cLines = wrapMin2(row.name1c, fReg, MOD_1C_SIZE, cW, 4);
+                const cLh = MOD_1C_SIZE * 1.18;
+                let cy = aY + ((cLines.length - 1) * cLh) / 2;
+                for (const ln of cLines) {
+                    const w = fReg.widthOfTextAtSize(ln, MOD_1C_SIZE);
+                    page.drawText(ln, { x: sizeX + 5 + (cW - w) / 2, y: cy, size: MOD_1C_SIZE, font: fReg, color: BLACK });
+                    cy -= cLh;
+                }
+            }
+        }
     }
-    page.drawLine({ start: { x: MARGIN, y: MARGIN }, end: { x: MARGIN + tableW, y: MARGIN }, thickness: 0.7, color: PDFLib.rgb(0.6, 0.6, 0.6) });
-
-    return await out.save();
+    return await doc.save();
 }
 
 /* ============================ Сортировка ШК (pdf-lib) ============================ */
@@ -493,15 +462,15 @@ async function startBuild() {
             color: r.color,
             article: r.article,
             sticker: r.sticker,
-            photo: r.photo,
             name1c: priceData.map.get(normKey(r.article)) || ''
         }));
+        const rowByNum = new Map(rows.map(r => [r.num, r]));
         const noName = rows.filter(r => !r.name1c).length;
         const noLabel = rows.filter(r => !shkData.bySticker.has(normKey(r.sticker))).length;
 
-        // ЛП-1С.pdf
+        // ЛП-1С.pdf — правим исходный лист подбора
         setProgress(16, 'Формируем ЛП с наименованиями из 1С...', '');
-        const lpBytes = await buildLpPdf(rows, listData.meta, (p) => setProgress(p, 'ЛП: ' + p + '%', ''));
+        const lpBytes = await buildLpModified(listData.bytes, rows, listData.pages, rowByNum);
         setProgress(86, 'ЛП готов', '');
 
         // ШК в порядке листа
@@ -594,7 +563,6 @@ function renderPreview() {
         return `
         <tr class="${band ? 'band' : ''}">
             <td>${r.num}</td>
-            <td>${r.photo ? `<img src="${r.photo.url}" style="height:40px; border-radius:4px;">` : '—'}</td>
             <td>${r.article || '—'}</td>
             <td class="name-cell">${r.name || '—'}</td>
             <td class="name-cell">${r.name1c || '—'}</td>
@@ -602,7 +570,7 @@ function renderPreview() {
         </tr>`;
     }).join('') +
     (limit < rows.length
-        ? `<tr><td colspan="6" style="text-align:center; color:#86868b;">… и ещё ${rows.length - limit} строк</td></tr>`
+        ? `<tr><td colspan="5" style="text-align:center; color:#86868b;">… и ещё ${rows.length - limit} строк</td></tr>`
         : '');
 }
 

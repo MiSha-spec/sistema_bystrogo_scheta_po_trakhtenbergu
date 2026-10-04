@@ -18,7 +18,7 @@
 
         <div class="sverka-header">
             <h2>🖼️ ЛП ВБ с картинками и наименованиями из 1С</h2>
-            <p class="subtitle">Лист подбора PDF + этикетки ШК PDF + прайс 1С • на выходе 2 PDF-файла • Wildberries</p>
+            <p class="subtitle">Правим исходный Лист подбора: «Бренд» → «Наименование», «Размер» → «Наименование из 1С» + ШК по порядку листа • Wildberries</p>
         </div>
 
         <div class="pack-layout">
@@ -30,7 +30,7 @@
                 </div>
                 <div class="panel-body">
                     <div class="upload-area" id="listUploadArea">
-                        <p class="area-desc">Загрузите <strong>печатный Лист подбора</strong> (PDF из ЛК) —<br>из него возьмём фото, наименования, артикулы, цвета и стикеры</p>
+                        <p class="area-desc">Загрузите <strong>печатный Лист подбора</strong> (PDF из ЛК) —<br>фото и оформление останутся, поменяем только столбики</p>
                         <input type="file" id="listFileInput" accept=".pdf" style="display:none">
                         <button class="upload-btn" onclick="document.getElementById('listFileInput').click()">⬆️ Выбрать PDF</button>
                         <p class="hint">или перетащите файл сюда</p>
@@ -101,7 +101,7 @@
             <div class="table-wrapper">
                 <table>
                     <thead>
-                        <tr><th>№ задания</th><th>Фото</th><th>Артикул</th><th>Наименование</th><th>Наименование из 1С</th><th>Стикер</th></tr>
+                        <tr><th>№ задания</th><th>Артикул</th><th>Наименование</th><th>Наименование из 1С</th><th>Стикер</th></tr>
                     </thead>
                     <tbody id="resultsBody"></tbody>
                 </table>
