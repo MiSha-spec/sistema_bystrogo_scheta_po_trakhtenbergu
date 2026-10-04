@@ -487,9 +487,10 @@ function buildLpXlsx(rows) {
     zip.file('xl/styles.xml',
         '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>' +
         '<styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">' +
-        '<fonts count="2">' +
+        '<fonts count="3">' +
         '<font><sz val="11"/><name val="Calibri"/></font>' +
         '<font><b/><sz val="11"/><color rgb="FFFFFFFF"/><name val="Calibri"/></font>' +
+        '<font><b/><sz val="11"/><color rgb="FF1D1D1F"/><name val="Calibri"/></font>' +
         '</fonts>' +
         '<fills count="3">' +
         '<fill><patternFill patternType="none"/></fill>' +
@@ -506,6 +507,7 @@ function buildLpXlsx(rows) {
         '<xf numFmtId="0" fontId="1" fillId="2" borderId="1" xfId="0" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1"><alignment horizontal="center" vertical="center"/></xf>' +
         '<xf numFmtId="0" fontId="0" fillId="0" borderId="1" xfId="0" applyBorder="1" applyAlignment="1"><alignment vertical="center" wrapText="1"/></xf>' +
         '<xf numFmtId="0" fontId="0" fillId="0" borderId="1" xfId="0" applyBorder="1" applyAlignment="1"><alignment horizontal="center" vertical="center" wrapText="1"/></xf>' +
+        '<xf numFmtId="0" fontId="2" fillId="0" borderId="1" xfId="0" applyFont="1" applyBorder="1" applyAlignment="1"><alignment vertical="center" wrapText="1"/></xf>' +
         '</cellXfs>' +
         '<cellStyles count="1"><cellStyle name="Обычный" xfId="0" builtinId="0"/></cellStyles>' +
         '</styleSheet>');
@@ -554,7 +556,7 @@ function buildLpXlsx(rows) {
         sheet += cellText('B', rn, r.num);
         sheet += cellEmpty('C', rn); // фото — картинкой
         sheet += cellText('D', rn, r.name || '');
-        sheet += cellText('E', rn, r.name1c || '');
+        sheet += `<c r="E${rn}" s="4" t="inlineStr"><is><t xml:space="preserve">${escapeXml(r.name1c || '')}</t></is></c>`;
         if (/^\d+$/.test(r.article)) sheet += cellNumber('F', rn, r.article);
         else sheet += cellText('F', rn, r.article || '');
         if (r.sticker) sheet += cellSticker('G', rn, r.sticker);
@@ -566,6 +568,7 @@ function buildLpXlsx(rows) {
     sheet += `</sheetData><autoFilter ref="A1:H${n + 1}"/>`;
     sheet += '<pageMargins left="0.4" right="0.4" top="0.5" bottom="0.5" header="0.3" footer="0.3"/>';
     sheet += '<pageSetup paperSize="9" orientation="portrait" fitToWidth="1" fitToHeight="0"/>';
+    sheet += '<headerFooter><oddFooter>&amp;R&amp;8стр. &amp;P из &amp;N</oddFooter></headerFooter>';
     if (imgs.length) sheet += '<drawing r:id="rId1"/>';
     sheet += '</worksheet>';
     zip.file('xl/worksheets/sheet1.xml', sheet);
