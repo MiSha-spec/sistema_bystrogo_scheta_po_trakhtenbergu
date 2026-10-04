@@ -414,11 +414,10 @@ function buildLpXlsx(rows) {
     rows.forEach((r, i) => {
         if (r.photo) {
             const dim = (r.photo.w && r.photo.h) ? { w: r.photo.w, h: r.photo.h } : imageSize(r.photo.bytes, r.photo.ext);
-            imgs.push({ row0: i + 1, col: 2, bytes: r.photo.bytes, ext: r.photo.ext, w: dim.w, h: dim.h });
+            imgs.push({ row0: i + 1, col: 2, bytes: r.photo.bytes, ext: r.photo.ext, w: dim.w, h: dim.h, rowOff: Math.max(2, Math.round((178 - dim.h) / 2)) });
         }
         if (r.label) {
-            const k = LBL_H / r.label.h;
-            imgs.push({ row0: i + 1, col: 7, bytes: r.label.bytes, ext: 'png', w: Math.round(r.label.w * k), h: LBL_H });
+            imgs.push({ row0: i + 1, col: 7, bytes: r.label.bytes, ext: 'png', w: 226, h: 170, rowOff: 4 });
         }
     });
     const hasJpg = imgs.some(im => im.ext === 'jpg' || im.ext === 'jpeg');
@@ -469,7 +468,7 @@ function buildLpXlsx(rows) {
             rels += '<Relationship Id="rId' + (k + 1) + '" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="../media/' + name + '"/>';
             anchors +=
                 '<xdr:oneCellAnchor>' +
-                '<xdr:from><xdr:col>' + im.col + '</xdr:col><xdr:colOff>19050</xdr:colOff><xdr:row>' + im.row0 + '</xdr:row><xdr:rowOff>19050</xdr:rowOff></xdr:from>' +
+                '<xdr:from><xdr:col>' + im.col + '</xdr:col><xdr:colOff>19050</xdr:colOff><xdr:row>' + im.row0 + '</xdr:row><xdr:rowOff>' + Math.round((im.rowOff || 2) * 9525) + '</xdr:rowOff></xdr:from>' +
                 '<xdr:ext cx="' + Math.round(im.w * 9525) + '" cy="' + Math.round(im.h * 9525) + '"/>' +
                 '<xdr:pic><xdr:nvPicPr><xdr:cNvPr id="' + (k + 2) + '" name="Картинка ' + (k + 1) + '"/><xdr:cNvPicPr/></xdr:nvPicPr>' +
                 '<xdr:blipFill><a:blip xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" r:embed="rId' + (k + 1) + '"/><a:stretch><a:fillRect/></a:stretch></xdr:blipFill>' +
@@ -510,7 +509,7 @@ function buildLpXlsx(rows) {
         '<cellStyles count="1"><cellStyle name="Обычный" xfId="0" builtinId="0"/></cellStyles>' +
         '</styleSheet>');
 
-    const widths = [12.25, 11, 10.5, 22.875, 21.125, 9.75, 16.5, 19.5];
+    const widths = [12.25, 11, 11, 22.875, 21.125, 9.75, 16.5, 19.5];
     const n = rows.length;
     let sheet =
         '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>' +
@@ -535,7 +534,7 @@ function buildLpXlsx(rows) {
     const cellSticker = (col, rowIdx, value) => {
         const main = value.slice(0, -4);
         const last4 = value.slice(-4);
-        const rpr = (bold) => `<rPr>${bold ? '<b/>' : ''}<sz val="11"/><rFont val="Calibri"/></rPr>`;
+        const rpr = (bold) => `<rPr>${bold ? '<b/>' : ''}<sz val="12"/><rFont val="Calibri"/></rPr>`;
         return `<c r="${col}${rowIdx}" s="3" t="inlineStr"><is>` +
             `<r>${rpr(false)}<t xml:space="preserve">${escapeXml(main)}</t></r>` +
             `<r>${rpr(true)}<t xml:space="preserve">${escapeXml(last4)}</t></r>` +
@@ -548,7 +547,7 @@ function buildLpXlsx(rows) {
 
     rows.forEach((r, i) => {
         const rn = i + 2;
-        sheet += `<row r="${rn}"${(r.photo || r.label) ? ' ht="82" customHeight="1"' : ''}>`;
+        sheet += `<row r="${rn}"${(r.photo || r.label) ? ' ht="134" customHeight="1"' : ''}>`;
         sheet += cellText('A', rn, r.docNum || '');
         sheet += cellText('B', rn, r.num);
         sheet += cellEmpty('C', rn); // фото — картинкой
