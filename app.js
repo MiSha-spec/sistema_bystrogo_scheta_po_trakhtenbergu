@@ -23,6 +23,7 @@ const ITEM_ICONS = {
     'ozon-pack': 'filter_7420944.png',
     'ozon-sverka-3': 'cancel_8528849.png',
     'wb-lp': 'reading_207172.png',
+    'wb-lp-pics': 'paint-palette_207159.png',
     'wb-couriers-1': '3d-blue-checklist-and-pencil-on-transparent-confirmed-or-approved-document-icon-beige-clipboard-with-paper-sheets-with-check-marks-symbol-cartoon-icon-minimal-smo.png',
     'wb-canceled': 'delete_15601482.png'
 };
@@ -430,6 +431,7 @@ function openInstruction(store, item) {
                                 <ul>
                                     <li><a href="data/wildberries/couriers/index.html" class="sverka-link">Курьеры экспресс</a><span class="si-li-desc">формирует файлы для назначения курьеров на основе Excel-файла</span></li>
                                     <li><a href="data/wildberries/wb-lp/index.html" class="sverka-link">Лист подбора ВБ (LP)</a><span class="si-li-desc">склеивает файлы WB-GI и wb в готовый Лист подбора со стикерами, артикулами и подсветкой отказов</span></li>
+                                    <li><a href="data/wildberries/wb-lp-pics/index.html" class="sverka-link">ЛП ВБ с картинками и наименованиями из 1С</a><span class="si-li-desc">пересобирает печатный Лист подбора (PDF): вместо «Бренд» и «Размер» — «Наименование из 1С» по артикулу из прайса, и сортирует PDF этикеток ШК в порядке листа</span></li>
                                     <li><a href="data/wildberries/otmenennye-zakazy/index.html" class="sverka-link">Отменённые заказы и реестр</a><span class="si-li-desc">показывает номера из реестра 1С (Идентификатор МП или Телефон1), которые есть среди отменённых заданий из ЛК WB (столбик № задания)</span></li>
                                 </ul>
                             </div>

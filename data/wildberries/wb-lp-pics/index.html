@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ЛП ВБ с картинками и наименованиями из 1С — Wildberries</title>
+    <link rel="stylesheet" href="styles.css">
+    <link rel="stylesheet" href="../../../assets/site.css?v=2">
+    <link rel="stylesheet" href="../../../assets/themes.css">
+    <script>try{document.documentElement.setAttribute("data-theme",localStorage.getItem("ra-theme")||"light")}catch(e){}</script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf-lib/1.17.1/pdf-lib.min.js"></script>
+</head>
+<body>
+    <div class="container">
+        <button class="back-btn" onclick="window.location.href='../../../index.html'">← В меню</button>
+
+        <div class="sverka-header">
+            <h2>🖼️ ЛП ВБ с картинками и наименованиями из 1С</h2>
+            <p class="subtitle">Лист подбора PDF + этикетки ШК PDF + прайс 1С • на выходе 2 PDF-файла • Wildberries</p>
+        </div>
+
+        <div class="pack-layout">
+
+            <!-- Плашка: лист подбора (PDF) -->
+            <div class="panel upload-panel">
+                <div class="panel-header">
+                    <h3>📄 Лист подбора (PDF)</h3>
+                </div>
+                <div class="panel-body">
+                    <div class="upload-area" id="listUploadArea">
+                        <p class="area-desc">Загрузите <strong>печатный Лист подбора</strong> (PDF из ЛК) —<br>из него возьмём фото, наименования, артикулы, цвета и стикеры</p>
+                        <input type="file" id="listFileInput" accept=".pdf" style="display:none">
+                        <button class="upload-btn" onclick="document.getElementById('listFileInput').click()">⬆️ Выбрать PDF</button>
+                        <p class="hint">или перетащите файл сюда</p>
+                        <p id="listFileName" class="file-name"></p>
+                    </div>
+                    <div id="listStatus" class="status">Обязательно: задаёт порядок строк и фото</div>
+                </div>
+            </div>
+
+            <!-- Плашка: этикетки ШК (PDF) -->
+            <div class="panel upload-panel">
+                <div class="panel-header">
+                    <h3>🏷️ Этикетки ШК (PDF)</h3>
+                </div>
+                <div class="panel-body">
+                    <div class="upload-area" id="shkUploadArea">
+                        <p class="area-desc">Загрузите <strong>PDF со стикерами ШК</strong> —<br>страницы отсортируем в порядке листа подбора</p>
+                        <input type="file" id="shkFileInput" accept=".pdf" style="display:none">
+                        <button class="upload-btn" onclick="document.getElementById('shkFileInput').click()">⬆️ Выбрать PDF</button>
+                        <p class="hint">или перетащите файл сюда</p>
+                        <p id="shkFileName" class="file-name"></p>
+                    </div>
+                    <div id="shkStatus" class="status">Обязательно: источник этикеток для сортировки</div>
+                </div>
+            </div>
+
+            <!-- Плашка: прайс 1С (Excel) -->
+            <div class="panel upload-panel">
+                <div class="panel-header">
+                    <h3>📖 Прайс 1С (Excel)</h3>
+                </div>
+                <div class="panel-body">
+                    <div class="upload-area" id="priceUploadArea">
+                        <p class="area-desc">Загрузите <strong>прайс 1С</strong> —<br>по артикулу заполнится столбик «Наименование из 1С»</p>
+                        <input type="file" id="priceFileInput" accept=".xlsx,.xls" style="display:none">
+                        <button class="upload-btn" onclick="document.getElementById('priceFileInput').click()">⬆️ Выбрать Excel</button>
+                        <p class="hint">или перетащите файл сюда</p>
+                        <p id="priceFileName" class="file-name"></p>
+                    </div>
+                    <div id="priceStatus" class="status">Обязательно: первый столбик — артикул, второй — название</div>
+                </div>
+            </div>
+        </div>
+
+        <button class="start-btn" onclick="startBuild()" id="startBtn" disabled>📦 СОБРАТЬ ДВА PDF-ФАЙЛА</button>
+
+        <div id="progressSection" class="progress-section hidden">
+            <div class="progress-stats">
+                <span id="progressText">Обработка...</span>
+                <span id="progressPercent">0%</span>
+            </div>
+            <div class="progress-bar"><div class="progress-fill" id="progressFill"></div></div>
+            <div class="progress-details" id="progressDetails"></div>
+        </div>
+
+        <div id="warningsSection" class="warnings-section hidden">
+            <div class="warning-box" id="warningsBox"></div>
+        </div>
+
+        <div id="resultsSection" class="results-section hidden">
+            <h3>📊 Результат</h3>
+            <div class="summary" id="summary"></div>
+            <div class="download-row">
+                <button class="export-btn primary" id="downloadLpBtn">📥 Скачать ЛП с наименованиями из 1С (PDF)</button>
+                <button class="export-btn primary" id="downloadShkBtn">📥 Скачать ШК по порядку листа (PDF)</button>
+            </div>
+            <h4 class="preview-title">Предпросмотр строк</h4>
+            <div class="table-wrapper">
+                <table>
+                    <thead>
+                        <tr><th>№ задания</th><th>Фото</th><th>Артикул</th><th>Наименование</th><th>Наименование из 1С</th><th>Стикер</th></tr>
+                    </thead>
+                    <tbody id="resultsBody"></tbody>
+                </table>
+            </div>
+            <button class="export-btn hidden" id="showAllBtn" onclick="showAllRows()">Показать все строки</button>
+        </div>
+    </div>
+
+    <script src="../../../data/yandex-market/podpis-etiketok/font-data.js?v=2"></script>
+    <script src="../../../data/yandex-market/podpis-etiketok/font-data-bold.js?v=2"></script>
+    <script src="../../../data/yandex-market/podpis-etiketok/fontkit.local.js?v=2"></script>
+    <script src="script.js"></script>
+
+    <script src="../../../assets/audio.js?v=4"></script>
+    <script src="../../../assets/themes.js"></script>
+    <script src="../../../assets/theme.js"></script>
+</body>
+</html>
