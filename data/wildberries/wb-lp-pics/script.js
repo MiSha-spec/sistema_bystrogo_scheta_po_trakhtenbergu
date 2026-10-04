@@ -415,11 +415,11 @@ function buildLpXlsx(rows) {
         if (r.photo) {
             const dim = (r.photo.w && r.photo.h) ? { w: r.photo.w, h: r.photo.h } : imageSize(r.photo.bytes, r.photo.ext);
             const k = IMG_H / dim.h;
-            imgs.push({ row0: i + 1, col: 2, bytes: r.photo.bytes, ext: r.photo.ext, w: dim.w * k, h: IMG_H });
+            imgs.push({ row0: i + 1, col: 2, bytes: r.photo.bytes, ext: r.photo.ext, w: Math.round(dim.w * k), h: IMG_H });
         }
         if (r.label) {
             const k = IMG_H / r.label.h;
-            imgs.push({ row0: i + 1, col: 7, bytes: r.label.bytes, ext: 'png', w: r.label.w * k, h: IMG_H });
+            imgs.push({ row0: i + 1, col: 7, bytes: r.label.bytes, ext: 'png', w: Math.round(r.label.w * k), h: IMG_H });
         }
     });
     const hasJpg = imgs.some(im => im.ext === 'jpg' || im.ext === 'jpeg');
@@ -471,10 +471,10 @@ function buildLpXlsx(rows) {
             anchors +=
                 '<xdr:oneCellAnchor>' +
                 '<xdr:from><xdr:col>' + im.col + '</xdr:col><xdr:colOff>19050</xdr:colOff><xdr:row>' + im.row0 + '</xdr:row><xdr:rowOff>19050</xdr:rowOff></xdr:from>' +
-                '<xdr:ext cx="' + (im.w * 9525) + '" cy="' + (im.h * 9525) + '"/>' +
+                '<xdr:ext cx="' + Math.round(im.w * 9525) + '" cy="' + Math.round(im.h * 9525) + '"/>' +
                 '<xdr:pic><xdr:nvPicPr><xdr:cNvPr id="' + (k + 2) + '" name="Картинка ' + (k + 1) + '"/><xdr:cNvPicPr/></xdr:nvPicPr>' +
                 '<xdr:blipFill><a:blip xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" r:embed="rId' + (k + 1) + '"/><a:stretch><a:fillRect/></a:stretch></xdr:blipFill>' +
-                '<xdr:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="' + (im.w * 9525) + '" cy="' + (im.h * 9525) + '"/></a:xfrm><a:prstGeom prst="rect"><a:avLst/></a:prstGeom></xdr:spPr></xdr:pic>' +
+                '<xdr:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="' + Math.round(im.w * 9525) + '" cy="' + Math.round(im.h * 9525) + '"/></a:xfrm><a:prstGeom prst="rect"><a:avLst/></a:prstGeom></xdr:spPr></xdr:pic>' +
                 '<xdr:clientData/></xdr:oneCellAnchor>';
         });
         zip.file('xl/drawings/drawing1.xml',
