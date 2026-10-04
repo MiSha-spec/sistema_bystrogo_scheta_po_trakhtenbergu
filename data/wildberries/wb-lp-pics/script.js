@@ -407,19 +407,18 @@ const LP_HEAD = 'FF404040';
 function buildLpXlsx(rows) {
     const zip = new JSZip();
 
-    // Картинки: фото товара (col C) и этикетки (col H).
-    // Единая высота 96 px — фото и этикетка в строке выглядят одинаково.
-    const IMG_H = 96;
+    // Картинки: фото товара (col C) — родной размер из PDF;
+    // этикетка (col H) — высота 170 px, как в образце
+    const LBL_H = 170;
     const imgs = [];
     rows.forEach((r, i) => {
         if (r.photo) {
             const dim = (r.photo.w && r.photo.h) ? { w: r.photo.w, h: r.photo.h } : imageSize(r.photo.bytes, r.photo.ext);
-            const k = IMG_H / dim.h;
-            imgs.push({ row0: i + 1, col: 2, bytes: r.photo.bytes, ext: r.photo.ext, w: Math.round(dim.w * k), h: IMG_H });
+            imgs.push({ row0: i + 1, col: 2, bytes: r.photo.bytes, ext: r.photo.ext, w: dim.w, h: dim.h });
         }
         if (r.label) {
-            const k = IMG_H / r.label.h;
-            imgs.push({ row0: i + 1, col: 7, bytes: r.label.bytes, ext: 'png', w: Math.round(r.label.w * k), h: IMG_H });
+            const k = LBL_H / r.label.h;
+            imgs.push({ row0: i + 1, col: 7, bytes: r.label.bytes, ext: 'png', w: Math.round(r.label.w * k), h: LBL_H });
         }
     });
     const hasJpg = imgs.some(im => im.ext === 'jpg' || im.ext === 'jpeg');
@@ -502,10 +501,11 @@ function buildLpXlsx(rows) {
         '<border><left style="thin"><color indexed="64"/></left><right style="thin"><color indexed="64"/></right><top style="thin"><color indexed="64"/></top><bottom style="thin"><color indexed="64"/></bottom><diagonal/></border>' +
         '</borders>' +
         '<cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs>' +
-        '<cellXfs count="3">' +
+        '<cellXfs count="4">' +
         '<xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/>' +
         '<xf numFmtId="0" fontId="1" fillId="2" borderId="1" xfId="0" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1"><alignment horizontal="center" vertical="center"/></xf>' +
         '<xf numFmtId="0" fontId="0" fillId="0" borderId="1" xfId="0" applyBorder="1" applyAlignment="1"><alignment vertical="center" wrapText="1"/></xf>' +
+        '<xf numFmtId="0" fontId="0" fillId="0" borderId="1" xfId="0" applyBorder="1" applyAlignment="1"><alignment horizontal="center" vertical="center" wrapText="1"/></xf>' +
         '</cellXfs>' +
         '<cellStyles count="1"><cellStyle name="Обычный" xfId="0" builtinId="0"/></cellStyles>' +
         '</styleSheet>');
@@ -525,18 +525,18 @@ function buildLpXlsx(rows) {
         '</cols>' +
         '<sheetData>';
 
-    const HEADERS = ['Номер документа', '№ задания', 'ФОТО ТОВАРА', 'Наименование ЛК', 'Наименование 1С', 'Артикул продавца', 'Стикер', 'Этикетка'];
+    const HEADERS = ['№  документа', '№ задания', 'ФОТО', 'Наименование ЛК', 'Наименование 1С', 'Артикул', 'Стикер', 'Этикетка'];
     const cellText = (col, rowIdx, value) =>
         `<c r="${col}${rowIdx}" s="2" t="inlineStr"><is><t xml:space="preserve">${escapeXml(value)}</t></is></c>`;
     const cellEmpty = (col, rowIdx) => `<c r="${col}${rowIdx}" s="2"/>`;
     const cellNumber = (col, rowIdx, value) =>
-        `<c r="${col}${rowIdx}" s="2"><v>${escapeXml(value)}</v></c>`;
+        `<c r="${col}${rowIdx}" s="3"><v>${escapeXml(value)}</v></c>`;
     // Стикер: основная часть обычным, последние 4 цифры жирным
     const cellSticker = (col, rowIdx, value) => {
         const main = value.slice(0, -4);
         const last4 = value.slice(-4);
         const rpr = (bold) => `<rPr>${bold ? '<b/>' : ''}<sz val="11"/><rFont val="Calibri"/></rPr>`;
-        return `<c r="${col}${rowIdx}" s="2" t="inlineStr"><is>` +
+        return `<c r="${col}${rowIdx}" s="3" t="inlineStr"><is>` +
             `<r>${rpr(false)}<t xml:space="preserve">${escapeXml(main)}</t></r>` +
             `<r>${rpr(true)}<t xml:space="preserve">${escapeXml(last4)}</t></r>` +
             `</is></c>`;
