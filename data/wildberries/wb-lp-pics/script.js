@@ -414,10 +414,11 @@ function buildLpXlsx(rows) {
     rows.forEach((r, i) => {
         if (r.photo) {
             const dim = (r.photo.w && r.photo.h) ? { w: r.photo.w, h: r.photo.h } : imageSize(r.photo.bytes, r.photo.ext);
-            imgs.push({ row0: i + 1, col: 2, bytes: r.photo.bytes, ext: r.photo.ext, w: dim.w, h: dim.h, rowOff: Math.max(2, Math.round((178 - dim.h) / 2)) });
+            imgs.push({ row0: i + 1, col: 2, bytes: r.photo.bytes, ext: r.photo.ext, w: dim.w, h: dim.h, rowOff: Math.max(2, Math.round((109 - dim.h) / 2)) });
         }
         if (r.label) {
-            imgs.push({ row0: i + 1, col: 7, bytes: r.label.bytes, ext: 'png', w: 226, h: 170, rowOff: 4 });
+            const k = 100 / r.label.h;
+            imgs.push({ row0: i + 1, col: 7, bytes: r.label.bytes, ext: 'png', w: Math.round(r.label.w * k), h: 100, rowOff: 4 });
         }
     });
     const hasJpg = imgs.some(im => im.ext === 'jpg' || im.ext === 'jpeg');
@@ -509,11 +510,12 @@ function buildLpXlsx(rows) {
         '<cellStyles count="1"><cellStyle name="Обычный" xfId="0" builtinId="0"/></cellStyles>' +
         '</styleSheet>');
 
-    const widths = [12.25, 11, 11, 22.875, 21.125, 9.75, 16.5, 19.5];
+    const widths = [12.25, 11, 11, 22.875, 21.125, 9.75, 16.5, 21.2];
     const n = rows.length;
     let sheet =
         '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>' +
         '<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">' +
+        '<sheetPr><pageSetUpPr fitToPage="1"/></sheetPr>' +
         `<dimension ref="A1:H${n + 1}"/>` +
         '<sheetViews><sheetView workbookViewId="0">' +
         '<pane ySplit="1" topLeftCell="A2" activePane="bottomLeft" state="frozen"/>' +
@@ -534,7 +536,7 @@ function buildLpXlsx(rows) {
     const cellSticker = (col, rowIdx, value) => {
         const main = value.slice(0, -4);
         const last4 = value.slice(-4);
-        const rpr = (bold) => `<rPr>${bold ? '<b/>' : ''}<sz val="12"/><rFont val="Calibri"/></rPr>`;
+        const rpr = (bold) => `<rPr>${bold ? '<b/>' : ''}<sz val="14"/><rFont val="Calibri"/></rPr>`;
         return `<c r="${col}${rowIdx}" s="3" t="inlineStr"><is>` +
             `<r>${rpr(false)}<t xml:space="preserve">${escapeXml(main)}</t></r>` +
             `<r>${rpr(true)}<t xml:space="preserve">${escapeXml(last4)}</t></r>` +
@@ -562,6 +564,8 @@ function buildLpXlsx(rows) {
     });
 
     sheet += `</sheetData><autoFilter ref="A1:H${n + 1}"/>`;
+    sheet += '<pageMargins left="0.4" right="0.4" top="0.5" bottom="0.5" header="0.3" footer="0.3"/>';
+    sheet += '<pageSetup paperSize="9" orientation="portrait" fitToWidth="1" fitToHeight="0"/>';
     if (imgs.length) sheet += '<drawing r:id="rId1"/>';
     sheet += '</worksheet>';
     zip.file('xl/worksheets/sheet1.xml', sheet);
