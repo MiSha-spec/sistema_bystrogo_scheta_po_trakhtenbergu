@@ -549,7 +549,7 @@ function buildLpXlsx(rows) {
 
     rows.forEach((r, i) => {
         const rn = i + 2;
-        sheet += `<row r="${rn}"${(r.photo || r.label) ? ' ht="134" customHeight="1"' : ''}>`;
+        sheet += `<row r="${rn}"${(r.photo || r.label) ? ' ht="82" customHeight="1"' : ''}>`;
         sheet += cellText('A', rn, r.docNum || '');
         sheet += cellText('B', rn, r.num);
         sheet += cellEmpty('C', rn); // фото — картинкой
