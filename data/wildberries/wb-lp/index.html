@@ -10,6 +10,7 @@
     <script>try{document.documentElement.setAttribute("data-theme",localStorage.getItem("ra-theme")||"light")}catch(e){}</script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 </head>
 <body>
     <div class="container">
@@ -17,7 +18,7 @@
 
         <div class="sverka-header">
             <h2><svg class="title-icon" viewBox="0 0 48 48" width="36" height="36" aria-hidden="true"><defs><linearGradient id="wbSortGrad" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#ff4fd8"/><stop offset="1" stop-color="#a80d90"/></linearGradient></defs><rect x="3" y="3" width="42" height="42" rx="11" fill="url(#wbSortGrad)"/><text x="16" y="21.5" text-anchor="middle" font-family="Arial, sans-serif" font-size="15" font-weight="800" fill="#fff">1</text><text x="16" y="39" text-anchor="middle" font-family="Arial, sans-serif" font-size="15" font-weight="800" fill="#fff">2</text><path d="M33 12v22m0 0l-6-6m6 6l6-6" stroke="#fff" stroke-width="3.5" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>Лист подбора ВБ (LP)</h2>
-            <p class="subtitle">склейка WB-GI и wb • ЛП со стикерами • Wildberries</p>
+            <p class="subtitle">WB-GI + прайс 1С + этикетки PDF • наименования из 1С • Wildberries</p>
         </div>
 
         <div class="pack-layout">
@@ -29,30 +30,81 @@
                 </div>
                 <div class="panel-body">
                     <div class="upload-area" id="giUploadArea">
-                        <p class="area-desc">Загрузите файл <strong>WB-GI</strong> со сборочными заданиями —<br>задайте порядок: № задания + наименование</p>
+                        <p class="area-desc">Загрузите файл <strong>WB-GI</strong> со сборочными заданиями —<br>задайте порядок: № задания (наименование — если есть в файле)</p>
                         <input type="file" id="giFileInput" accept=".xlsx,.xls" style="display:none">
                         <button class="upload-btn" onclick="document.getElementById('giFileInput').click()">⬆️ Выбрать Excel</button>
                         <p class="hint">или перетащите файл сюда</p>
                         <p id="giFileName" class="file-name"></p>
                     </div>
-                    <div id="giStatus" class="status">Колонки: № задания + Наименование</div>
+                    <div id="giStatus" class="status">Обязательно: колонка «№ задания» задаёт порядок строк</div>
                 </div>
             </div>
 
             <!-- Плашка: wb -->
             <div class="panel upload-panel">
                 <div class="panel-header">
-                    <h3>📋 Задания (wb файл)</h3>
+                    <h3>📋 Задания (wb файл) — необязательно</h3>
                 </div>
                 <div class="panel-body">
                     <div class="upload-area" id="wbUploadArea">
-                        <p class="area-desc">Загрузите файл <strong>wb</strong> —<br>из него возьмём стикеры, артикулы и статусы</p>
+                        <p class="area-desc">Загрузите файл <strong>wb</strong> —<br>из него возьмём стикеры, артикулы и статусы (отказы подсветятся)</p>
                         <input type="file" id="wbFileInput" accept=".xlsx,.xls" style="display:none">
                         <button class="upload-btn" onclick="document.getElementById('wbFileInput').click()">⬆️ Выбрать Excel</button>
                         <p class="hint">или перетащите файл сюда</p>
                         <p id="wbFileName" class="file-name"></p>
                     </div>
-                    <div id="wbStatus" class="status">Из него берутся стикеры, артикулы и статусы</div>
+                    <div id="wbStatus" class="status">Необязательно: без него данные возьмём из печатного PDF</div>
+                </div>
+            </div>
+
+            <!-- Плашка: печатный лист подбора (PDF) -->
+            <div class="panel upload-panel">
+                <div class="panel-header">
+                    <h3>📄 Печатный лист подбора (PDF)</h3>
+                </div>
+                <div class="panel-body">
+                    <div class="upload-area" id="printedUploadArea">
+                        <p class="area-desc">Загрузите <strong>печатный Лист подбора</strong> (PDF из ЛК) —<br>из него возьмём наименования, артикулы и стикеры</p>
+                        <input type="file" id="printedFileInput" accept=".pdf" style="display:none">
+                        <button class="upload-btn" onclick="document.getElementById('printedFileInput').click()">⬆️ Выбрать PDF</button>
+                        <p class="hint">или перетащите файл сюда</p>
+                        <p id="printedFileName" class="file-name"></p>
+                    </div>
+                    <div id="printedStatus" class="status">Обязательно: источник артикулов и стикеров</div>
+                </div>
+            </div>
+
+            <!-- Плашка: этикетки (PDF) -->
+            <div class="panel upload-panel">
+                <div class="panel-header">
+                    <h3>🏷️ Этикетки (PDF)</h3>
+                </div>
+                <div class="panel-body">
+                    <div class="upload-area" id="labelsUploadArea">
+                        <p class="area-desc">Загрузите <strong>PDF с этикетками</strong> —<br>каждая этикетка попадёт в свою строку листа</p>
+                        <input type="file" id="labelsFileInput" accept=".pdf" style="display:none">
+                        <button class="upload-btn" onclick="document.getElementById('labelsFileInput').click()">⬆️ Выбрать PDF</button>
+                        <p class="hint">или перетащите файл сюда</p>
+                        <p id="labelsFileName" class="file-name"></p>
+                    </div>
+                    <div id="labelsStatus" class="status">Обязательно: картинки для колонки «Этикетка»</div>
+                </div>
+            </div>
+
+            <!-- Плашка: прайс 1С -->
+            <div class="panel upload-panel">
+                <div class="panel-header">
+                    <h3>📖 Прайс 1С (Excel) — необязательно</h3>
+                </div>
+                <div class="panel-body">
+                    <div class="upload-area" id="priceUploadArea">
+                        <p class="area-desc">Загрузите <strong>прайс 1С</strong> —<br>по артикулу заполнится столбик «Наименование из 1С»</p>
+                        <input type="file" id="priceFileInput" accept=".xlsx,.xls" style="display:none">
+                        <button class="upload-btn" onclick="document.getElementById('priceFileInput').click()">⬆️ Выбрать Excel</button>
+                        <p class="hint">или перетащите файл сюда</p>
+                        <p id="priceFileName" class="file-name"></p>
+                    </div>
+                    <div id="priceStatus" class="status">Необязательно: первый столбик — артикул, второй — название</div>
                 </div>
             </div>
         </div>
@@ -82,7 +134,7 @@
             <div class="table-wrapper">
                 <table>
                     <thead>
-                        <tr><th>№ задания</th><th>Артикул</th><th>Наименование</th><th>Стикер</th><th>Статус</th></tr>
+                        <tr><th>№ задания</th><th>Артикул</th><th>Наименование</th><th>Наименование из 1С</th><th>Стикер</th><th>Статус</th></tr>
                     </thead>
                     <tbody id="resultsBody"></tbody>
                 </table>
