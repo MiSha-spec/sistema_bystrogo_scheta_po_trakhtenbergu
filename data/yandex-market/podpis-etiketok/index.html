@@ -1,0 +1,170 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Подпись этикеток — Рабочий Ассистент</title>
+    <link rel="stylesheet" href="styles.css?v=2">
+    <link rel="stylesheet" href="../../../assets/site.css?v=2">
+    <link rel="stylesheet" href="../../../assets/themes.css">
+    <script>try{document.documentElement.setAttribute("data-theme",localStorage.getItem("ra-theme")||"light")}catch(e){}</script>
+</head>
+<body>
+    <div class="container">
+        <button class="back-btn" onclick="window.location.href='../../../index.html'">← В меню</button>
+
+        <div class="sverka-header">
+            <h2><span class="e">🖨️</span> Подпись этикеток</h2>
+            <p class="subtitle">ЯндексМаркет · подписываются только заказы с количеством 1 из реестра 1С, сортировка по названию</p>
+        </div>
+
+        <!-- ===== 4 окна загрузки ===== -->
+        <div class="uploads-grid">
+
+            <!-- 1. Реестр 1С -->
+            <div class="panel upload-panel">
+                <div class="panel-header"><h3>📋 Реестр 1С</h3></div>
+                <div class="panel-body">
+                    <p class="upload-hint">Вставь или перетащи <strong>реестр 1С</strong> с правильным количеством заказов. Столбцы и строки могут быть любыми — учитываются только «Идентификатор МП» и «Количество». Для подписи остаются заказы, где количество равно 1.</p>
+                    <div class="drop-zone" id="reestrDropZone">
+                        <span class="dz-icon">📄</span>
+                        <p class="dz-title">Вставь или перетащи реестр 1С</p>
+                        <p class="dz-sub">Excel: .xlsx, .xls</p>
+                        <input type="file" accept=".xlsx,.xls" id="reestrInput" hidden>
+                    </div>
+                    <div class="load-stats hidden" id="reestrStats"></div>
+                    <button class="reset-zone-btn hidden" id="reestrReset" type="button">🔄 Загрузить другой файл</button>
+                </div>
+            </div>
+
+            <!-- 2. Этикетки -->
+            <div class="panel upload-panel">
+                <div class="panel-header"><h3>🏷️ Этикетки</h3></div>
+                <div class="panel-body">
+                    <p class="upload-hint">Вставь <strong>файл с этикетками</strong> (PDF). Останутся только этикетки заказов с количеством 1 из реестра — остальные удалятся, а внизу страницы появится список с причинами.</p>
+                    <div class="drop-zone" id="labelsDropZone">
+                        <span class="dz-icon">🏷️</span>
+                        <p class="dz-title">Вставь файл с этикетками</p>
+                        <p class="dz-sub">PDF</p>
+                        <input type="file" accept=".pdf" id="labelsInput" hidden>
+                    </div>
+                    <div class="load-stats hidden" id="labelsStats"></div>
+                    <button class="reset-zone-btn hidden" id="labelsReset" type="button">🔄 Загрузить другой файл</button>
+                </div>
+            </div>
+
+            <!-- 3. Прайс -->
+            <div class="panel upload-panel">
+                <div class="panel-header"><h3>💰 Прайс</h3></div>
+                <div class="panel-body">
+                    <p class="upload-hint">Вставь <strong>прайс</strong>. По артикулу из него берётся название товара, которое будет напечатано на этикетке.</p>
+                    <div class="drop-zone" id="priceDropZone">
+                        <span class="dz-icon">💰</span>
+                        <p class="dz-title">Вставь прайс</p>
+                        <p class="dz-sub">Excel: .xlsx, .xls</p>
+                        <input type="file" accept=".xlsx,.xls" id="priceInput" hidden>
+                    </div>
+                    <div class="load-stats hidden" id="priceStats"></div>
+                    <button class="reset-zone-btn hidden" id="priceReset" type="button">🔄 Загрузить другой файл</button>
+                </div>
+            </div>
+
+            <!-- 4. Список заказов из ЛК -->
+            <div class="panel upload-panel">
+                <div class="panel-header"><h3>📦 Список заказов из ЛК</h3></div>
+                <div class="panel-body">
+                    <p class="upload-hint">Вставь <strong>список заказов из ЛК</strong>. Из него берутся артикулы (SKU) к нужным заказам из реестра 1С — по артикулу найдётся название в прайсе.</p>
+                    <div class="drop-zone" id="lkDropZone">
+                        <span class="dz-icon">📦</span>
+                        <p class="dz-title">Вставь список заказов</p>
+                        <p class="dz-sub">Excel: .xlsx, .xls</p>
+                        <input type="file" accept=".xlsx,.xls" id="lkInput" hidden>
+                    </div>
+                    <div class="load-stats hidden" id="lkStats"></div>
+                    <button class="reset-zone-btn hidden" id="lkReset" type="button">🔄 Загрузить другой файл</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- ===== Кнопка выгрузки «Заказы и наименования» ===== -->
+        <div class="export-row">
+            <button class="export-btn start-btn" id="exportListBtn" type="button" disabled>📥 Скачать файл «Заказы и наименования»</button>
+            <span class="hint" id="exportHint">Нужны: реестр 1С, прайс и список заказов из ЛК</span>
+        </div>
+
+        <!-- ===== Настройка этикетки и запуск ===== -->
+        <div class="panel settings-panel">
+            <div class="panel-header"><h3>⚙️ Подпись и запуск</h3></div>
+            <div class="panel-body">
+                <div class="settings-grid">
+                    <div class="settings-controls">
+                        <div class="cfg-row">
+                            <div class="cfg-field">
+                                <label for="cfgFontSize">Макс. размер текста</label>
+                                <input type="number" id="cfgFontSize" value="12" min="3" max="20">
+                            </div>
+                            <div class="cfg-field">
+                                <label for="cfgColor">Цвет</label>
+                                <select id="cfgColor">
+                                    <option value="#000000" selected>Чёрный</option>
+                                    <option value="#ff0000">Красный</option>
+                                    <option value="#0000ff">Синий</option>
+                                    <option value="#ffffff">Белый</option>
+                                </select>
+                            </div>
+                        </div>
+                        <p class="cfg-hint">Название вставляется автоматически одной строкой внизу этикетки (под штрихкодом). Размер подбирается под длину названия: максимально крупный, но строка помещается целиком. Готовые этикетки сортируются по алфавиту по наименованию товара.</p>
+                        <button class="start-btn" id="btnStartProcess" disabled>🚀 Начать обработку</button>
+                        <p id="startHint">Загрузите все 4 файла: реестр 1С, этикетки, прайс и список заказов из ЛК.</p>
+                    </div>
+                    <div class="preview-box hidden" id="previewBox">
+                        <div id="previewWrapper"><canvas id="pdfCanvas"></canvas></div>
+                        <p class="hint">Так будет выглядеть подпись на первой этикетке</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- ===== Прогресс ===== -->
+        <div class="progress-section hidden" id="progressSection">
+            <div class="progress-stats">
+                <span id="progressText">Обработка...</span>
+                <span id="progressPercent">0%</span>
+            </div>
+            <div class="progress-bar"><div class="progress-fill" id="progressFill"></div></div>
+            <div class="progress-details" id="progressDetails"></div>
+        </div>
+
+        <!-- ===== Результат ===== -->
+        <div class="result-section hidden" id="resultSection">
+            <h3>✅ Готово!</h3>
+            <p class="result-stats" id="resultStats"></p>
+            <div class="result-buttons">
+                <a class="start-btn" id="downloadPdfBtn">📄 Скачать PDF</a>
+                <a class="export-btn" id="downloadLogBtn">📊 Скачать журнал</a>
+                <button class="export-btn" type="button" onclick="location.reload()">🔄 Новая обработка</button>
+            </div>
+        </div>
+
+        <!-- ===== Плашка удалённых этикеток (внизу) ===== -->
+        <div class="removed-plaque hidden" id="removedPlaque">
+            <div class="plaque-head">🚫 Удалённые этикетки — <span id="removedCount"></span></div>
+            <div class="removed-groups" id="removedGroups"></div>
+        </div>
+    </div>
+
+    <script src="font-data.js?v=2"></script>
+    <script src="font-data-bold.js?v=2"></script>
+    <script src="fontkit.local.js?v=2"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+    <script src="xlsx.styles.bundle.js?v=2"></script>
+    <script>window.XLSX_STYLED = window.XLSX;</script>
+    <script src="https://cdn.sheetjs.com/xlsx-0.18.5/package/dist/xlsx.full.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/pdf-lib@1.17.1/dist/pdf-lib.min.js"></script>
+    <script src="app.js?v=7"></script>
+
+    <script src="../../../assets/audio.js?v=4"></script>
+    <script src="../../../assets/themes.js"></script>
+    <script src="../../../assets/theme.js"></script>
+</body>
+</html>

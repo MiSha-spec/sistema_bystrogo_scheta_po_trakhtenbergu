@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Лист подбора ВБ — Wildberries</title>
+    <link rel="stylesheet" href="styles.css">
+    <link rel="stylesheet" href="../../../assets/site.css?v=2">
+    <link rel="stylesheet" href="../../../assets/themes.css">
+    <script>try{document.documentElement.setAttribute("data-theme",localStorage.getItem("ra-theme")||"light")}catch(e){}</script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+</head>
+<body>
+    <div class="container">
+        <button class="back-btn" onclick="window.location.href='../../../index.html'">← В меню</button>
+
+        <div class="sverka-header">
+            <h2><svg class="title-icon" viewBox="0 0 48 48" width="36" height="36" aria-hidden="true"><defs><linearGradient id="wbSortGrad" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#ff4fd8"/><stop offset="1" stop-color="#a80d90"/></linearGradient></defs><rect x="3" y="3" width="42" height="42" rx="11" fill="url(#wbSortGrad)"/><text x="16" y="21.5" text-anchor="middle" font-family="Arial, sans-serif" font-size="15" font-weight="800" fill="#fff">1</text><text x="16" y="39" text-anchor="middle" font-family="Arial, sans-serif" font-size="15" font-weight="800" fill="#fff">2</text><path d="M33 12v22m0 0l-6-6m6 6l6-6" stroke="#fff" stroke-width="3.5" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>Лист подбора ВБ (LP)</h2>
+            <p class="subtitle">Печатный лист подбора + прайс 1С + этикетки PDF • наименования из 1С • Wildberries</p>
+        </div>
+
+        <div class="pack-layout">
+
+            <!-- Плашка: печатный лист подбора (PDF) -->
+            <div class="panel upload-panel">
+                <div class="panel-header">
+                    <h3>📄 Печатный лист подбора (PDF)</h3>
+                </div>
+                <div class="panel-body">
+                    <div class="upload-area" id="printedUploadArea">
+                        <p class="area-desc">Загрузите <strong>печатный Лист подбора</strong> (PDF из ЛК) —<br>из него возьмём номера, наименования, артикулы и стикеры</p>
+                        <input type="file" id="printedFileInput" accept=".pdf" style="display:none">
+                        <button class="upload-btn" onclick="document.getElementById('printedFileInput').click()">⬆️ Выбрать PDF</button>
+                        <p class="hint">или перетащите файл сюда</p>
+                        <p id="printedFileName" class="file-name"></p>
+                    </div>
+                    <div id="printedStatus" class="status">Обязательно: задаёт строки листа</div>
+                </div>
+            </div>
+
+            <!-- Плашка: этикетки (PDF) -->
+            <div class="panel upload-panel">
+                <div class="panel-header">
+                    <h3>🏷️ Этикетки (PDF)</h3>
+                </div>
+                <div class="panel-body">
+                    <div class="upload-area" id="labelsUploadArea">
+                        <p class="area-desc">Загрузите <strong>PDF с этикетками</strong> —<br>каждая этикетка попадёт в свою строку листа</p>
+                        <input type="file" id="labelsFileInput" accept=".pdf" style="display:none">
+                        <button class="upload-btn" onclick="document.getElementById('labelsFileInput').click()">⬆️ Выбрать PDF</button>
+                        <p class="hint">или перетащите файл сюда</p>
+                        <p id="labelsFileName" class="file-name"></p>
+                    </div>
+                    <div id="labelsStatus" class="status">Обязательно: картинки для колонки «Этикетка»</div>
+                </div>
+            </div>
+
+            <!-- Плашка: прайс 1С -->
+            <div class="panel upload-panel">
+                <div class="panel-header">
+                    <h3>📖 Прайс 1С (Excel)</h3>
+                </div>
+                <div class="panel-body">
+                    <div class="upload-area" id="priceUploadArea">
+                        <p class="area-desc">Загрузите <strong>прайс 1С</strong> —<br>по артикулу заполнится столбик «Наименование из 1С»</p>
+                        <input type="file" id="priceFileInput" accept=".xlsx,.xls" style="display:none">
+                        <button class="upload-btn" onclick="document.getElementById('priceFileInput').click()">⬆️ Выбрать Excel</button>
+                        <p class="hint">или перетащите файл сюда</p>
+                        <p id="priceFileName" class="file-name"></p>
+                    </div>
+                    <div id="priceStatus" class="status">Обязательно: первый столбик — артикул, второй — название</div>
+                </div>
+            </div>
+        </div>
+
+        <button class="start-btn" onclick="startLp()" id="startBtn" disabled>📦 СОБРАТЬ ЛИСТ ПОДБОРА</button>
+
+        <div id="progressSection" class="progress-section hidden">
+            <div class="progress-stats">
+                <span id="progressText">Обработка...</span>
+                <span id="progressPercent">0%</span>
+            </div>
+            <div class="progress-bar"><div class="progress-fill" id="progressFill"></div></div>
+            <div class="progress-details" id="progressDetails"></div>
+        </div>
+
+        <div id="warningsSection" class="warnings-section hidden">
+            <div class="warning-box" id="warningsBox"></div>
+        </div>
+
+        <div id="resultsSection" class="results-section hidden">
+            <h3>📊 Результат</h3>
+            <div class="summary" id="summary"></div>
+            <div class="download-row">
+                <button class="export-btn primary" id="downloadBtn">📥 Скачать Лист подбора (LP.xlsx)</button>
+            </div>
+            <h4 class="preview-title">Предпросмотр листа</h4>
+            <div class="table-wrapper">
+                <table>
+                    <thead>
+                        <tr><th>№ задания</th><th>Артикул</th><th>Наименование</th><th>Наименование из 1С</th><th>Стикер</th></tr>
+                    </thead>
+                    <tbody id="resultsBody"></tbody>
+                </table>
+            </div>
+            <button class="export-btn hidden" id="showAllBtn" onclick="showAllRows()">Показать все строки</button>
+        </div>
+    </div>
+
+    <script src="script.js"></script>
+
+    <script src="../../../assets/audio.js?v=4"></script>
+    <script src="../../../assets/themes.js"></script>
+    <script src="../../../assets/theme.js"></script>
+</body>
+</html>

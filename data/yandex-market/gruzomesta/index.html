@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Сверка по грузоместам — ЯндексМаркет</title>
+    <link rel="stylesheet" href="styles.css">
+    <link rel="stylesheet" href="../../../assets/site.css?v=2">
+    <link rel="stylesheet" href="../../../assets/themes.css">
+    <script>try{document.documentElement.setAttribute("data-theme",localStorage.getItem("ra-theme")||"light")}catch(e){}</script>
+</head>
+<body>
+    <div class="container">
+        <button class="back-btn" onclick="window.location.href='../../../index.html'">← В меню</button>
+        
+        <div class="sverka-header">
+            <h2><span class="e">📦</span> Сверка по грузоместам</h2>
+            <p class="subtitle">ЯндексМаркет</p>
+        </div>
+
+        <div class="sverka-layout">
+
+            <!-- Плашка 1: Список из ЛК -->
+            <div class="panel reestr-panel">
+                <div class="panel-header">
+                    <h3>📋 Список из ЛК</h3>
+                </div>
+                <div class="panel-body">
+                    <p class="area-desc">Вставьте список заказов из ЛК — только столбики<br><strong>«Номер заказа»</strong> и <strong>«Грузоместа»</strong>:<br>номер + табуляция + грузоместа</p>
+                    <textarea id="lkText" placeholder="Формат: номер + табуляция + грузоместа&#10;59781196544	1&#10;59780774723	1&#10;59780556738	2"></textarea>
+                </div>
+            </div>
+
+            <!-- Плашка 2: Реестр из 1С -->
+            <div class="panel reestr-panel">
+                <div class="panel-header">
+                    <h3>📋 Реестр из 1С</h3>
+                </div>
+                <div class="panel-body">
+                    <p class="area-desc">Вставьте реестр из 1С в том же формате:<br><strong>номер + табуляция + грузоместа</strong></p>
+                    <textarea id="reestrText" placeholder="Формат: номер + табуляция + грузоместа&#10;59378903936	1&#10;59386064257	1&#10;59392740352	2"></textarea>
+                    <div id="reestrDupWarning" class="dup-warning hidden"></div>
+                </div>
+            </div>
+        </div>
+
+        <button class="start-btn" onclick="startSverka()" id="startBtn">▶️ НАЧАТЬ СВЕРКУ</button>
+
+        <div id="progressSection" class="progress-section hidden">
+            <div class="progress-stats">
+                <span id="progressText">Обработка...</span>
+                <span id="progressPercent">0%</span>
+            </div>
+            <div class="progress-bar"><div class="progress-fill" id="progressFill"></div></div>
+            <div class="progress-details" id="progressDetails"></div>
+        </div>
+
+        <div id="resultsSection" class="results-section hidden">
+            <h3>📊 Расхождения по грузоместам</h3>
+            <div class="summary" id="summary"></div>
+            <div class="table-wrapper">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Номер заказа</th>
+                            <th>Грузомест в ЛК</th>
+                            <th>Грузомест в 1С</th>
+                            <th>Разница</th>
+                            <th>Статус</th>
+                        </tr>
+                    </thead>
+                    <tbody id="resultsBody"></tbody>
+                </table>
+            </div>
+<button class="export-btn" onclick="copyDiffNumbers()" style="margin-right: 10px;">📋 Копировать номера</button>
+            <button class="export-btn" onclick="exportCSV()">📥 Скачать CSV</button>
+        </div>
+    </div>
+
+    <script src="script.js"></script>
+
+    <script src="../../../assets/reestr-file.js?v=4"></script>
+    <script>ReestrFileSupport.setup({ textareaId: 'reestrText', dupId: 'reestrDupWarning', splitRe: /\n/, tokenSplit: /[\t;]+|\s{2,}/ });</script>
+
+    <script src="../../../assets/audio.js?v=4"></script>
+    <script src="../../../assets/themes.js"></script>
+    <script src="../../../assets/theme.js"></script>
+</body>
+</html>
