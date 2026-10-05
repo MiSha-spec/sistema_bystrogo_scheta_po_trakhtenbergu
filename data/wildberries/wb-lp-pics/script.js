@@ -711,6 +711,9 @@ function showResults() {
         showAllBtn.classList.add('hidden');
     }
 
+    document.getElementById('downloadBtn').disabled = false;
+    document.getElementById('downloadShkBtn').disabled = false;
+
     document.getElementById('resultsSection').classList.remove('hidden');
     document.getElementById('resultsSection').scrollIntoView({ behavior: 'smooth' });
 }
@@ -750,10 +753,12 @@ function download(blob, filename) {
 /* ============================ Инициализация ============================ */
 
 document.getElementById('downloadBtn').addEventListener('click', () => {
-    if (built) download(built.blob, 'Лист подбора.xlsx');
+    if (!built || !built.blob) { alert('Сначала нажмите «СОБРАТЬ ЛИСТ ПОДБОРА»'); return; }
+    download(built.blob, 'Лист подбора.xlsx');
 });
 document.getElementById('downloadShkBtn').addEventListener('click', () => {
-    if (built) download(built.shkBlob, 'шк по порядку.pdf');
+    if (!built || !built.shkBlob) { alert('Сначала нажмите «СОБРАТЬ ЛИСТ ПОДБОРА»'); return; }
+    download(built.shkBlob, 'шк по порядку.pdf');
 });
 
 wireUpload('docxUploadArea', 'docxFileInput', handleListPdf);
