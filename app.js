@@ -22,6 +22,7 @@ const ITEM_ICONS = {
     'ozon-sverka-2': '3d-minimal-to-do-list-goal-achievement-concept-checklist-reminder-clipboard-with-a-checklist-pen-and-bell-icon-3d-illustration-png.png',
     'ozon-pack': 'filter_7420944.png',
     'ozon-sverka-3': 'cancel_8528849.png',
+    'ozon-lp-pics': 'paint-palette_207159.png',
     'wb-lp': 'reading_207172.png',
     'wb-lp-pics': 'paint-palette_207159.png',
     'wb-couriers-1': '3d-blue-checklist-and-pencil-on-transparent-confirmed-or-approved-document-icon-beige-clipboard-with-paper-sheets-with-check-marks-symbol-cartoon-icon-minimal-smo.png',
@@ -218,15 +219,39 @@ function buildSubnodes(id) {
     const spread = Math.min(54, 260 / Math.max(n, 1)) * Math.PI / 180;
     const dist = 168;
 
+    const widthOf = (item) => Math.max(158, Math.min(330, item.title.length * 7.4 + 92));
+    const defaultPos = (i) => {
+        const ang = base + (i - (n - 1) / 2) * spread;
+        return { x: P.x + Math.cos(ang) * dist, y: P.y + Math.sin(ang) * dist };
+    };
+    /* Центры пилюль: сохранённые перетаскиванием или расчётные. Новая
+       пилюля может рассчитаться на место ранее перетащенной и спрятаться
+       под ней — поэтому ненайденное место ищем дугой вокруг узла. */
+    const placed = items.map((item, i) => {
+        const saved = subPos[`${id}:${item.id}`];
+        const d = saved || defaultPos(i);
+        return { item, i, w: widthOf(item), saved: !!saved, x: d.x, y: d.y };
+    });
+    placed.forEach((p) => {
+        if (p.saved) return;
+        const clash = (x, y) => placed.some((q) => q !== p &&
+            Math.abs(q.x - x) < (q.w + p.w) / 2 + 12 &&
+            Math.abs(q.y - y) < 50);
+        let step = 0;
+        while (clash(p.x, p.y) && step < 48) {
+            step++;
+            const ang = base + (p.i - (n - 1) / 2) * spread + step * 15 * Math.PI / 180;
+            p.x = P.x + Math.cos(ang) * dist;
+            p.y = P.y + Math.sin(ang) * dist;
+        }
+    });
+
     let out = '';
     items.forEach((item, i) => {
-        const ang = base + (i - (n - 1) / 2) * spread;
-        let sx = P.x + Math.cos(ang) * dist;
-        let sy = P.y + Math.sin(ang) * dist;
-        const saved = subPos[`${id}:${item.id}`];
-        if (saved) { sx = saved.x; sy = saved.y; }
+        const p = placed[i];
+        const sx = p.x, sy = p.y;
         const ico = ITEM_ICONS[item.id] || SUB_ICONS[i % SUB_ICONS.length];
-        const w = Math.max(158, Math.min(330, item.title.length * 7.4 + 92));
+        const w = p.w;
         const nid = `sub-${id}-${i}`;
         out += `<path id="${nid}" class="neuron sub-neuron" d="${neuronPath(P, { x: sx, y: sy })}" stroke="${color}"/>`;
         out += pulse(nid, color);
@@ -423,6 +448,7 @@ function openInstruction(store, item) {
                                     <li><a href="data/ozon/list-reestr/index.html" class="sverka-link">Сверка Лист отгрузки и реестр</a><span class="si-li-desc">сравнивает номера отгрузок из листа отгрузки (PDF) с номерами из 1С</span></li>
                                     <li><a href="data/ozon/podbor-reestr/index.html" class="sverka-link">Сверка Лист подбора и реестр</a><span class="si-li-desc">сравнивает номера из листа подбора (PDF) с реестром</span></li>
                                     <li><a href="data/ozon/podbor-stickers/index.html" class="sverka-link">Лист подбора и наклейки</a><span class="si-li-desc">формирует Лист подбора в Excel (по алфавиту, названия из прайса) и PDF с наклейками в том же порядке</span></li>
+                                    <li><a href="data/ozon/lp-pics/index.html" class="sverka-link">ЛП Озон с картинками и 1С</a><span class="si-li-desc">собирает Лист подбора в Excel: фото прямо из PDF, «Наименование 1С» по артикулу из прайса, «Номер документа» из заказов 1С по столбику «Телефон 1», этикетки колонкой + «шк по порядку»</span></li>
                                     <li><a href="data/ozon/otmenennye-zakazy/index.html" class="sverka-link">Отменённые заказы и реестр</a><span class="si-li-desc">показывает номера из реестра 1С (столбик Телефон1), которые есть среди отменённых отправлений из ЛК Ozon</span></li>
                                 </ul>
                             </div>

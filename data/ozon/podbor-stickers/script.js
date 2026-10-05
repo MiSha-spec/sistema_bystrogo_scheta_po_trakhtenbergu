@@ -3,7 +3,7 @@
    Выход: Лист подбора (Excel, по алфавиту) + Наклейки (PDF в том же порядке) */
 
 pdfjsLib.GlobalWorkerOptions.workerSrc =
-    'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+    '../../../assets/vendor/pdf.worker.min.js';
 
 /* ============================ Состояние ============================ */
 

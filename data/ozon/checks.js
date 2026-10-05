@@ -15,6 +15,11 @@ const ozonChecks = [
         path: 'data/ozon/podbor-stickers/index.html'
     },
     {
+        id: 'ozon-lp-pics',
+        title: 'ЛП Озон с картинками и 1С',
+        path: 'data/ozon/lp-pics/index.html'
+    },
+    {
         id: 'ozon-sverka-3',
         title: 'Отменённые заказы и реестр',
         path: 'data/ozon/otmenennye-zakazy/index.html'

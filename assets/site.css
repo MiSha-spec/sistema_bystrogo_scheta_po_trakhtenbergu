@@ -446,3 +446,22 @@ tbody tr:hover { background: var(--section-bg) !important; }
 .progress-section .progress-details { color: #2a2140 !important; }
 
 .reestr-drop-hover { outline: 2px dashed var(--accent, #9B59B6); outline-offset: -2px; }
+
+/* ===== Компактные окошки загрузки — весь сайт =====
+   Меньше воздуха, содержание то же. Правила идут после локальных styles.css,
+   поэтому перекрывают их (классы у всех инструментов одинаковые). */
+.pack-layout {
+    grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+    gap: 12px;
+    margin-bottom: 15px;
+}
+.panel:has(.upload-area) { min-height: 0; }
+.panel:has(.upload-area) .panel-header { padding: 9px 14px; border-bottom-width: 1px; }
+.panel:has(.upload-area) .panel-header h3 { font-size: 0.98em; }
+.panel:has(.upload-area) .panel-body { padding: 10px 12px; }
+.area-desc { font-size: 0.8em; line-height: 1.35; margin-bottom: 8px; }
+.upload-area { padding: 10px 8px; }
+.upload-area .upload-btn:not(.small) { padding: 7px 16px; font-size: 0.88em; }
+.upload-area .hint { margin-top: 5px; font-size: 0.75em; }
+.upload-area .file-name { margin-top: 5px; font-size: 0.78em; }
+.panel:has(.upload-area) .status { margin-top: 6px; font-size: 0.78em; }
