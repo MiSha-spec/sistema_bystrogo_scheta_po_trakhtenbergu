@@ -71,6 +71,81 @@ function wireUpload(areaId, inputId, statusId, nameId, handler) {
 
 /* ============================ Прайс (Excel) ============================ */
 
+/* Прайс: сами находим колонки «артикул» и «наименование» — формат файла
+   плавает: колонки переезжают, сверху появляются шапки и логотипы.
+   1) шапка: в строке есть «артикул/арт/код» и «наименование/товар/название»;
+   2) без шапки: колонка артикулов — самая «числовая», в которой числа НЕ идут
+      подряд (иначе это колонка «№»); названия — колонка с длинным текстом. */
+function buildPriceMap(grid) {
+    const norm = (v) => typeof v === 'number' ? String(Math.round(v)) : normArt(v);
+    const artLike = (s) => /^\d{4,10}$/.test(s);
+    const nameLike = (s) => s.length >= 5 && /[А-Яа-яЁёA-Za-z]/.test(s);
+    const headArt = (s) => /^(артикул|арт|код)/.test(s);
+    const headName = (s) => /^(наименован|товар|название|номенклатур)/.test(s);
+
+    let artCol = -1, nameCol = -1, start = 0;
+    for (let i = 0; i < Math.min(grid.length, 15) && artCol === -1; i++) {
+        const heads = grid[i].map(c => normArt(c).toLowerCase());
+        const a = heads.findIndex(h => h && headArt(h));
+        if (a === -1) continue;
+        const n = heads.findIndex(h => h && headName(h));
+        if (n !== -1 && n !== a) { artCol = a; nameCol = n; start = i + 1; }
+    }
+
+    if (artCol === -1) {
+        const scan = Math.min(grid.length, 80);
+        let maxC = 0;
+        for (let i = 0; i < scan; i++) maxC = Math.max(maxC, grid[i].length);
+        maxC = Math.min(maxC, 12);
+        const artCnt = new Array(maxC).fill(0);
+        const seqCnt = new Array(maxC).fill(0);
+        const nameCnt = new Array(maxC).fill(0);
+        for (let c = 0; c < maxC; c++) {
+            let prev = null;
+            for (let i = 0; i < scan; i++) {
+                const s = norm(grid[i][c]);
+                if (artLike(s)) {
+                    artCnt[c]++;
+                    const n = parseInt(s, 10);
+                    if (prev != null && n === prev + 1) seqCnt[c]++;
+                    prev = n;
+                } else prev = null;
+                if (nameLike(String(grid[i][c] == null ? '' : grid[i][c]).trim())) nameCnt[c]++;
+            }
+        }
+        for (let c = 0; c < maxC; c++)
+            if (artCnt[c] >= 5 && seqCnt[c] <= artCnt[c] * 0.6 &&
+                (artCol === -1 || artCnt[c] > artCnt[artCol]))
+                artCol = c;
+        for (let c = 0; c < maxC; c++)
+            if (c !== artCol && nameCnt[c] >= 5 &&
+                (nameCol === -1 || nameCnt[c] > nameCnt[nameCol]))
+                nameCol = c;
+        if (artCol !== -1 && nameCol !== -1) {
+            start = grid.findIndex(r => artCol < r.length && artLike(norm(r[artCol])) &&
+                                       nameCol < r.length &&
+                                       nameLike(String(r[nameCol] == null ? '' : r[nameCol]).trim()));
+            if (start === -1) start = 0;
+        }
+    }
+
+    if (artCol === -1 || nameCol === -1 || nameCol === artCol) {
+        artCol = 0; nameCol = 1; start = 0;   // запасной путь — как раньше
+    }
+
+    const map = new Map();
+    let dup = 0;
+    for (let i = start; i < grid.length; i++) {
+        const r = grid[i];
+        const art = norm(r[artCol]);
+        const nm = String(r[nameCol] == null ? '' : r[nameCol]).trim();
+        if (art && nm) {
+            if (!map.has(art)) map.set(art, nm); else dup++;
+        }
+    }
+    return { map: map, dup: dup };
+}
+
 async function handlePrice(file) {
     document.getElementById('priceFileName').textContent = file.name;
     document.getElementById('priceUploadArea').classList.remove('loaded');
@@ -83,15 +158,7 @@ async function handlePrice(file) {
         // raw: true — артикул-число берём как число: в форматированном тексте
         // бывают разделители разрядов («442,885»), из-за них ключ не совпадает
         const rows = XLSX.utils.sheet_to_json(ws, { header: 1, raw: true, defval: '' });
-        const map = new Map();
-        let empty = 0;
-        for (const r of rows) {
-            const art = normArt(typeof r[0] === 'number' ? String(Math.round(r[0])) : r[0]);
-            const name = String(r[1] == null ? '' : r[1]).trim();
-            if (!art || !name) continue;
-            if (/^(артикул|арт|код)$/i.test(art) && /наимен|товар|назв/i.test(name)) continue; // шапка
-            if (!map.has(art)) map.set(art, name); else empty++;
-        }
+        const { map, dup: empty } = buildPriceMap(rows);
         if (map.size === 0) throw new Error('не найдены столбцы «артикул + наименование»');
         state.price = { map, name: file.name, count: map.size };
         document.getElementById('priceUploadArea').classList.add('loaded');
