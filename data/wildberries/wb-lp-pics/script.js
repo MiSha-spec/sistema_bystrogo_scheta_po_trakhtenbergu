@@ -533,24 +533,28 @@ function buildLpXlsx(rows) {
         '<font><b/><sz val="11"/><color rgb="FFFFFFFF"/><name val="Calibri"/></font>' +
         '<font><b/><sz val="11"/><color rgb="FF1D1D1F"/><name val="Calibri"/></font>' +
         '</fonts>' +
-        '<fills count="4">' +
+        '<fills count="5">' +
         '<fill><patternFill patternType="none"/></fill>' +
         '<fill><patternFill patternType="gray125"/></fill>' +
         `<fill><patternFill patternType="solid"><fgColor rgb="${LP_HEAD}"/><bgColor indexed="64"/></patternFill></fill>` +
         '<fill><patternFill patternType="solid"><fgColor rgb="FFFFFF00"/><bgColor indexed="64"/></patternFill></fill>' +
+        '<fill><patternFill patternType="solid"><fgColor rgb="FFD9D9D9"/><bgColor indexed="64"/></patternFill></fill>' +
         '</fills>' +
         '<borders count="2">' +
         '<border><left/><right/><top/><bottom/><diagonal/></border>' +
         '<border><left style="thin"><color indexed="64"/></left><right style="thin"><color indexed="64"/></right><top style="thin"><color indexed="64"/></top><bottom style="thin"><color indexed="64"/></bottom><diagonal/></border>' +
         '</borders>' +
         '<cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs>' +
-        '<cellXfs count="4">' +
+        '<cellXfs count="9">' +
         '<xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/>' +
         '<xf numFmtId="0" fontId="1" fillId="2" borderId="1" xfId="0" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1"><alignment horizontal="center" vertical="center"/></xf>' +
         '<xf numFmtId="0" fontId="0" fillId="0" borderId="1" xfId="0" applyBorder="1" applyAlignment="1"><alignment vertical="center" wrapText="1"/></xf>' +
         '<xf numFmtId="0" fontId="0" fillId="0" borderId="1" xfId="0" applyBorder="1" applyAlignment="1"><alignment horizontal="center" vertical="center" wrapText="1"/></xf>' +
         '<xf numFmtId="0" fontId="2" fillId="0" borderId="1" xfId="0" applyFont="1" applyBorder="1" applyAlignment="1"><alignment vertical="center" wrapText="1"/></xf>' +
         '<xf numFmtId="0" fontId="2" fillId="3" borderId="1" xfId="0" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1"><alignment vertical="center" wrapText="1"/></xf>' +
+        '<xf numFmtId="0" fontId="0" fillId="4" borderId="1" xfId="0" applyFill="1" applyBorder="1" applyAlignment="1"><alignment vertical="center" wrapText="1"/></xf>' +
+        '<xf numFmtId="0" fontId="0" fillId="4" borderId="1" xfId="0" applyFill="1" applyBorder="1" applyAlignment="1"><alignment horizontal="center" vertical="center" wrapText="1"/></xf>' +
+        '<xf numFmtId="0" fontId="2" fillId="4" borderId="1" xfId="0" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1"><alignment vertical="center" wrapText="1"/></xf>' +
         '</cellXfs>' +
         '<cellStyles count="1"><cellStyle name="Обычный" xfId="0" builtinId="0"/></cellStyles>' +
         '</styleSheet>');
@@ -572,17 +576,17 @@ function buildLpXlsx(rows) {
         '<sheetData>';
 
     const HEADERS = ['№  документа', '№ задания', 'ФОТО', 'Наименование ЛК', 'Наименование 1С', 'Артикул', 'Стикер', 'Этикетка'];
-    const cellText = (col, rowIdx, value) =>
-        `<c r="${col}${rowIdx}" s="2" t="inlineStr"><is><t xml:space="preserve">${escapeXml(value)}</t></is></c>`;
-    const cellEmpty = (col, rowIdx) => `<c r="${col}${rowIdx}" s="2"/>`;
-    const cellNumber = (col, rowIdx, value) =>
-        `<c r="${col}${rowIdx}" s="3"><v>${escapeXml(value)}</v></c>`;
+    const cellText = (col, rowIdx, value, s) =>
+        `<c r="${col}${rowIdx}" s="${s == null ? 2 : s}" t="inlineStr"><is><t xml:space="preserve">${escapeXml(value)}</t></is></c>`;
+    const cellEmpty = (col, rowIdx, s) => `<c r="${col}${rowIdx}" s="${s == null ? 2 : s}"/>`;
+    const cellNumber = (col, rowIdx, value, s) =>
+        `<c r="${col}${rowIdx}" s="${s == null ? 3 : s}"><v>${escapeXml(value)}</v></c>`;
     // Стикер: основная часть обычным, последние 4 цифры жирным
-    const cellSticker = (col, rowIdx, value) => {
+    const cellSticker = (col, rowIdx, value, s) => {
         const main = value.slice(0, -4);
         const last4 = value.slice(-4);
         const rpr = (bold) => `<rPr>${bold ? '<b/>' : ''}<sz val="14"/><rFont val="Calibri"/></rPr>`;
-        return `<c r="${col}${rowIdx}" s="3" t="inlineStr"><is>` +
+        return `<c r="${col}${rowIdx}" s="${s == null ? 3 : s}" t="inlineStr"><is>` +
             `<r>${rpr(false)}<t xml:space="preserve">${escapeXml(main)}</t></r>` +
             `<r>${rpr(true)}<t xml:space="preserve">${escapeXml(last4)}</t></r>` +
             `</is></c>`;
@@ -592,19 +596,24 @@ function buildLpXlsx(rows) {
         HEADERS.map((h, i) => `<c r="${String.fromCharCode(65 + i)}1" s="1" t="inlineStr"><is><t>${escapeXml(h)}</t></is></c>`).join('') +
         `</row>`;
 
+    // серые полосы по блокам одинаковых наименований (чередование при смене)
+    let band = false, prevKey = null;
     rows.forEach((r, i) => {
+        const key = r.name1c || r.name || '';
+        if (key !== prevKey) { band = !band; prevKey = key; }
+        const sBody = band ? 6 : 2, sCenter = band ? 7 : 3, sName = band ? 8 : 4;
         const rn = i + 2;
         sheet += `<row r="${rn}"${(r.photo || r.label) ? ' ht="82" customHeight="1"' : ''}>`;
-        sheet += cellText('A', rn, r.docNum || '');
-        sheet += cellText('B', rn, r.num);
-        sheet += cellEmpty('C', rn); // фото — картинкой
-        sheet += cellText('D', rn, r.name || '');
-        sheet += `<c r="E${rn}" s="${r.miss ? 5 : 4}" t="inlineStr"><is><t xml:space="preserve">${escapeXml(r.name1c || '')}</t></is></c>`;
-        if (/^\d+$/.test(r.article)) sheet += cellNumber('F', rn, r.article);
-        else sheet += cellText('F', rn, r.article || '');
-        if (r.sticker) sheet += cellSticker('G', rn, r.sticker);
-        else sheet += cellEmpty('G', rn);
-        sheet += cellEmpty('H', rn); // этикетка — картинкой
+        sheet += cellText('A', rn, r.docNum || '', sBody);
+        sheet += cellText('B', rn, r.num, sBody);
+        sheet += cellEmpty('C', rn, sBody); // фото — картинкой
+        sheet += cellText('D', rn, r.name || '', sBody);
+        sheet += `<c r="E${rn}" s="${r.miss ? 5 : sName}" t="inlineStr"><is><t xml:space="preserve">${escapeXml(r.name1c || '')}</t></is></c>`;
+        if (/^\d+$/.test(r.article)) sheet += cellNumber('F', rn, r.article, sCenter);
+        else sheet += cellText('F', rn, r.article || '', sBody);
+        if (r.sticker) sheet += cellSticker('G', rn, r.sticker, sCenter);
+        else sheet += cellEmpty('G', rn, sBody);
+        sheet += cellEmpty('H', rn, sBody); // этикетка — картинкой
         sheet += `</row>`;
     });
 
