@@ -383,23 +383,32 @@ async function handleOrders(file) {
     setStatus('ordersStatus', '⏳ Чтение файла...', '');
     try {
         const buf = new Uint8Array(await file.arrayBuffer());
-        let keyCol = 'Идентификатор МП';
-        let rows;
-        try {
-            rows = readSheet(buf, ['Идентификатор МП', 'Номер документа']);
-        } catch (e) {
-            keyCol = 'Телефон1';
-            rows = readSheet(buf, ['Телефон1', 'Номер документа']);
+        const wb = XLSX.read(buf, { type: 'array' });
+        const cellStr = (v) => (typeof v === 'number' ? String(Math.round(v)) : String(v == null ? '' : v).trim());
+        let found = null;
+        for (const sn of wb.SheetNames) {
+            const grid = XLSX.utils.sheet_to_json(wb.Sheets[sn], { header: 1, defval: '' });
+            for (let i = 0; i < Math.min(grid.length, 15) && !found; i++) {
+                const cells = grid[i].map(h => cellStr(h).toLowerCase());
+                const keyIdx = cells.findIndex(h => h === 'идентификатор мп' || h === 'телефон1');
+                const docIdx = cells.findIndex(h => h.indexOf('номер документа') !== -1 || h === '№ документа');
+                if (keyIdx === -1 || docIdx === -1) continue;
+                found = { grid: grid, headerIdx: i, keyIdx: keyIdx, docIdx: docIdx,
+                          keyName: cellStr(grid[i][keyIdx]) };
+            }
+            if (found) break;
         }
+        if (!found) throw new Error('в файле нет столбиков «Идентификатор МП»/«Телефон1» и «Номер документа»');
         const map = new Map();
-        for (const r of rows) {
-            const mp = normKey(r[keyCol]);
-            const dn = String(r['Номер документа'] || '').trim();
+        for (let i = found.headerIdx + 1; i < found.grid.length; i++) {
+            const r = found.grid[i];
+            const mp = normKey(cellStr(r[found.keyIdx])).replace(/\.0$/, '');
+            const dn = cellStr(r[found.docIdx]);
             if (mp && dn && !map.has(mp)) map.set(mp, dn);
         }
-        if (!map.size) throw new Error('не нашли пар «Номер документа» с «Идентификатором МП» или «Телефон1»');
+        if (!map.size) throw new Error('не нашли пар «номер документа + идентификатор»');
         ordersData = { map: map, name: file.name };
-        setStatus('ordersStatus', `✅ Заказов: ${map.size} (по ${keyCol})`, 'success');
+        setStatus('ordersStatus', `✅ Заказов: ${map.size} (по «${found.keyName}»)`, 'success');
     } catch (err) {
         ordersData = null;
         setStatus('ordersStatus', '❌ Ошибка: ' + err.message, 'error');
