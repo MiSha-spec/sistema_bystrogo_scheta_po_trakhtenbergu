@@ -287,15 +287,18 @@ function pageContent(doc, page) {
 
 /* ============================ Этикетки ШК (PDF) ============================ */
 
-/* Картинки этикеток: рендерим страницы в PNG по порядку — он уже совпадает
-   с порядком строк листа, сортировка не нужна. */
+/* Картинки этикеток: рендерим страницы в PNG и запоминаем, какой ШК
+   напечатан на каждой странице — по нему этикетки расставляются
+   по строкам листа и собирается «шк по порядку». */
 async function handleShk(file) {
     document.getElementById('shkFileName').textContent = file.name;
     setStatus('shkStatus', '⏳ Рендерим этикетки...', '');
     try {
         const buf = new Uint8Array(await file.arrayBuffer());
+        const bytesKeep = new Uint8Array(buf); // копия для pdf-lib — pdf.js забирает буфер себе
         const doc = await pdfjsLib.getDocument({ data: buf }).promise;
         const ordered = [];
+        const byStickerIdx = new Map();
         for (let p = 1; p <= doc.numPages; p++) {
             const page = await doc.getPage(p);
             const vp = page.getViewport({ scale: 2 });
@@ -311,17 +314,38 @@ async function handleShk(file) {
                 bytes: Uint8Array.from(atob(dataUrl.split(',')[1]), c => c.charCodeAt(0)),
                 w: canvas.width, h: canvas.height
             });
+            const tc = await page.getTextContent();
+            const m = tc.items.map(it => it.str).join(' ').match(/WB\s*(\d{4,8})\s*(\d{3,8})/);
+            if (m && !byStickerIdx.has(m[1] + m[2])) byStickerIdx.set(m[1] + m[2], p - 1);
             setProgress(Math.round(p / doc.numPages * 90), 'Рендер этикеток: ' + p + '/' + doc.numPages, '');
             if (p % 10 === 0) await new Promise(r => setTimeout(r, 0));
         }
-        shkData = { ordered: ordered, pages: doc.numPages, name: file.name };
-        setStatus('shkStatus', `✅ Этикеток: ${ordered.length}`, 'success');
+        shkData = { ordered: ordered, byStickerIdx: byStickerIdx, pages: doc.numPages, bytes: bytesKeep, name: file.name };
+        setStatus('shkStatus', `✅ Этикеток: ${ordered.length} (ШК распознано: ${byStickerIdx.size})`, 'success');
     } catch (err) {
         shkData = null;
         setStatus('shkStatus', '❌ Ошибка: ' + err.message, 'error');
         console.error(err);
     }
     updateStartBtn();
+}
+
+/* «шк по порядку»: страницы этикеток в порядке строк листа
+   (сопоставление по ШК на странице), остальные — в конец */
+async function buildShkPdf(rows, shk) {
+    const src = await PDFLib.PDFDocument.load(shk.bytes);
+    const order = [];
+    const used = new Set();
+    for (const r of rows) {
+        const pi = shk.byStickerIdx.get(normKey(r.sticker));
+        if (pi != null && !used.has(pi)) { order.push(pi); used.add(pi); }
+    }
+    const rest = [];
+    for (let i = 0; i < src.getPageCount(); i++) if (!used.has(i)) rest.push(i);
+    const out = await PDFLib.PDFDocument.create();
+    const pages = await out.copyPages(src, order.concat(rest));
+    pages.forEach(p => out.addPage(p));
+    return await out.save();
 }
 
 /* ============================ Прайс 1С (Excel) ============================ */
@@ -590,24 +614,32 @@ async function startBuild() {
     try {
         setProgress(10, 'Собираем строки...', '');
         await new Promise(r => setTimeout(r, 30));
-        const rows = listData.rows.map((r, i) => ({
-            num: r.num,
-            name: r.name,
-            article: r.article,
-            sticker: r.sticker,
-            photo: r.photo,
-            name1c: priceData.map.get(normKey(r.article)) || '',
-            docNum: ordersData.map.get(r.num) || '',
-            label: i < shkData.ordered.length ? shkData.ordered[i] : null
-        }));
+        const rows = listData.rows.map((r, i) => {
+            const pi = shkData.byStickerIdx.get(normKey(r.sticker));
+            return {
+                num: r.num,
+                name: r.name,
+                article: r.article,
+                sticker: r.sticker,
+                photo: r.photo,
+                name1c: priceData.map.get(normKey(r.article)) || '',
+                docNum: ordersData.map.get(r.num) || '',
+                label: (pi != null && pi < shkData.ordered.length) ? shkData.ordered[pi] : null
+            };
+        });
         const noDoc = rows.filter(r => !r.docNum).length;
         const noName = rows.filter(r => !r.name1c).length;
 
         setProgress(15, 'Формируем Excel...', '');
         const blob = await buildLpXlsx(rows);
+        setProgress(85, 'Excel готов', '');
+
+        // «шк по порядку» — страницы этикеток в порядке строк листа
+        setProgress(88, 'Собираем «шк по порядку»...', '');
+        const shkBlob = await buildShkPdf(rows, { bytes: shkData.bytes, byStickerIdx: shkData.byStickerIdx });
         setProgress(100, 'Готово!', `Строк: ${rows.length} | С номером документа: ${rows.length - noDoc} | Из 1С: ${rows.length - noName} | Этикеток: ${rows.filter(r => r.label).length}`);
 
-        built = { rows, blob, noDoc, noName };
+        built = { rows, blob, shkBlob, noDoc, noName };
         showResults();
     } catch (err) {
         console.error(err);
@@ -654,10 +686,13 @@ function showResults() {
     if (noPhoto) {
         warnHtml += `<p><strong>ℹ️ ${noPhoto} строк(ы) без фото товара</strong> — в PDF не нашлась картинка для этих строк.</p>`;
     }
-    if (shkData.pages < rows.length) {
-        warnHtml += `<p><strong>⚠️ Этикеток (${shkData.pages}) меньше, чем строк (${rows.length})</strong> — последние строки останутся без картинки.</p>`;
-    } else if (shkData.pages > rows.length) {
-        warnHtml += `<p><strong>ℹ️ Этикеток (${shkData.pages}) больше, чем строк (${rows.length})</strong> — лишние не вошли.</p>`;
+    const noLabel = rows.filter(r => !r.label).length;
+    if (noLabel) {
+        const nums = rows.filter(r => !r.label).map(r => r.num).slice(0, 10).join(', ');
+        warnHtml += `<p><strong>⚠️ ${noLabel} строк(и) без этикетки</strong> — ШК из листа не нашёлся на страницах файла шк: ${nums}${noLabel > 10 ? ' …' : ''}</p>`;
+    }
+    if (shkData.pages > rows.length) {
+        warnHtml += `<p><strong>ℹ️ Этикеток (${shkData.pages}) больше, чем строк (${rows.length})</strong> — лишние добавлены в конец файла «шк по порядку».</p>`;
     }
     if (warnHtml) {
         document.getElementById('warningsBox').innerHTML = warnHtml;
@@ -716,6 +751,9 @@ function download(blob, filename) {
 
 document.getElementById('downloadBtn').addEventListener('click', () => {
     if (built) download(built.blob, 'Лист подбора.xlsx');
+});
+document.getElementById('downloadShkBtn').addEventListener('click', () => {
+    if (built) download(built.shkBlob, 'шк по порядку.pdf');
 });
 
 wireUpload('docxUploadArea', 'docxFileInput', handleListPdf);
