@@ -636,7 +636,8 @@ async function startBuild() {
 
         // «шк по порядку» — страницы этикеток в порядке строк листа
         setProgress(88, 'Собираем «шк по порядку»...', '');
-        const shkBlob = await buildShkPdf(rows, { bytes: shkData.bytes, byStickerIdx: shkData.byStickerIdx });
+        const shkBytes = await buildShkPdf(rows, { bytes: shkData.bytes, byStickerIdx: shkData.byStickerIdx });
+        const shkBlob = new Blob([shkBytes], { type: 'application/octet-stream' }); // octet-stream — принудительное скачивание
         setProgress(100, 'Готово!', `Строк: ${rows.length} | С номером документа: ${rows.length - noDoc} | Из 1С: ${rows.length - noName} | Этикеток: ${rows.filter(r => r.label).length}`);
 
         built = { rows, blob, shkBlob, noDoc, noName };
