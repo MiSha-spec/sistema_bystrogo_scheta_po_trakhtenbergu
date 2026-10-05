@@ -743,11 +743,17 @@ function showAllRows() {
 }
 
 function download(blob, filename) {
+    const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
-    a.href = URL.createObjectURL(blob);
+    a.href = url;
     a.download = filename;
+    a.style.display = 'none';
+    document.body.appendChild(a);   // часть движков игнорирует клик по «висячей» ссылке
     a.click();
-    setTimeout(() => URL.revokeObjectURL(a.href), 30000);
+    setTimeout(() => {
+        if (a.parentNode) a.parentNode.removeChild(a);
+        URL.revokeObjectURL(url);
+    }, 2000);
 }
 
 /* ============================ Инициализация ============================ */
