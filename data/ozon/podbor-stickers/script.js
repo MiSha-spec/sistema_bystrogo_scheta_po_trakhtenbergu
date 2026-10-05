@@ -80,11 +80,13 @@ async function handlePrice(file) {
         const wb = XLSX.read(buf, { type: 'array' });
         const ws = wb.Sheets[wb.SheetNames[0]];
         if (!ws) throw new Error('в файле нет таблиц');
-        const rows = XLSX.utils.sheet_to_json(ws, { header: 1, raw: false, defval: '' });
+        // raw: true — артикул-число берём как число: в форматированном тексте
+        // бывают разделители разрядов («442,885»), из-за них ключ не совпадает
+        const rows = XLSX.utils.sheet_to_json(ws, { header: 1, raw: true, defval: '' });
         const map = new Map();
         let empty = 0;
         for (const r of rows) {
-            const art = normArt(r[0]);
+            const art = normArt(typeof r[0] === 'number' ? String(Math.round(r[0])) : r[0]);
             const name = String(r[1] == null ? '' : r[1]).trim();
             if (!art || !name) continue;
             if (/^(артикул|арт|код)$/i.test(art) && /наимен|товар|назв/i.test(name)) continue; // шапка

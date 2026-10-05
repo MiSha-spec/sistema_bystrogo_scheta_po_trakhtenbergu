@@ -357,10 +357,12 @@ async function handlePrice(file) {
     try {
         const buf = new Uint8Array(await file.arrayBuffer());
         const wb = XLSX.read(buf, { type: 'array' });
-        const grid = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { header: 1, raw: false, defval: '' });
+        // raw: true — артикул-число берём как число: в форматированном тексте
+        // бывают разделители разрядов («442,885»), из-за них ключ не совпадает
+        const grid = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { header: 1, raw: true, defval: '' });
         const map = new Map();
         for (const r of grid) {
-            const art = normKey(r[0]);
+            const art = normKey(typeof r[0] === 'number' ? String(Math.round(r[0])) : r[0]);
             const nm = String(r[1] == null ? '' : r[1]).trim();
             if (art && nm && !map.has(art)) map.set(art, nm);
         }
