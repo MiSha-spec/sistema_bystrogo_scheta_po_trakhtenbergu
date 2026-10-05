@@ -533,10 +533,11 @@ function buildLpXlsx(rows) {
         '<font><b/><sz val="11"/><color rgb="FFFFFFFF"/><name val="Calibri"/></font>' +
         '<font><b/><sz val="11"/><color rgb="FF1D1D1F"/><name val="Calibri"/></font>' +
         '</fonts>' +
-        '<fills count="3">' +
+        '<fills count="4">' +
         '<fill><patternFill patternType="none"/></fill>' +
         '<fill><patternFill patternType="gray125"/></fill>' +
         `<fill><patternFill patternType="solid"><fgColor rgb="${LP_HEAD}"/><bgColor indexed="64"/></patternFill></fill>` +
+        '<fill><patternFill patternType="solid"><fgColor rgb="FFFFFF00"/><bgColor indexed="64"/></patternFill></fill>' +
         '</fills>' +
         '<borders count="2">' +
         '<border><left/><right/><top/><bottom/><diagonal/></border>' +
@@ -549,6 +550,7 @@ function buildLpXlsx(rows) {
         '<xf numFmtId="0" fontId="0" fillId="0" borderId="1" xfId="0" applyBorder="1" applyAlignment="1"><alignment vertical="center" wrapText="1"/></xf>' +
         '<xf numFmtId="0" fontId="0" fillId="0" borderId="1" xfId="0" applyBorder="1" applyAlignment="1"><alignment horizontal="center" vertical="center" wrapText="1"/></xf>' +
         '<xf numFmtId="0" fontId="2" fillId="0" borderId="1" xfId="0" applyFont="1" applyBorder="1" applyAlignment="1"><alignment vertical="center" wrapText="1"/></xf>' +
+        '<xf numFmtId="0" fontId="2" fillId="3" borderId="1" xfId="0" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1"><alignment vertical="center" wrapText="1"/></xf>' +
         '</cellXfs>' +
         '<cellStyles count="1"><cellStyle name="Обычный" xfId="0" builtinId="0"/></cellStyles>' +
         '</styleSheet>');
@@ -597,7 +599,7 @@ function buildLpXlsx(rows) {
         sheet += cellText('B', rn, r.num);
         sheet += cellEmpty('C', rn); // фото — картинкой
         sheet += cellText('D', rn, r.name || '');
-        sheet += `<c r="E${rn}" s="4" t="inlineStr"><is><t xml:space="preserve">${escapeXml(r.name1c || '')}</t></is></c>`;
+        sheet += `<c r="E${rn}" s="${r.miss ? 5 : 4}" t="inlineStr"><is><t xml:space="preserve">${escapeXml(r.name1c || '')}</t></is></c>`;
         if (/^\d+$/.test(r.article)) sheet += cellNumber('F', rn, r.article);
         else sheet += cellText('F', rn, r.article || '');
         if (r.sticker) sheet += cellSticker('G', rn, r.sticker);
@@ -631,21 +633,25 @@ async function startBuild() {
     try {
         setProgress(10, 'Собираем строки...', '');
         await new Promise(r => setTimeout(r, 30));
-        const rows = listData.rows.map((r, i) => {
+        const rows = listData.rows.map(r => {
             const pi = shkData.byStickerIdx.get(normKey(r.sticker));
+            const oneC = priceData.map.get(normKey(r.article)) || '';
             return {
                 num: r.num,
                 name: r.name,
                 article: r.article,
                 sticker: r.sticker,
                 photo: r.photo,
-                name1c: priceData.map.get(normKey(r.article)) || '',
+                name1c: oneC || r.name,   // нет в прайсе — оставляем наименование из ЛК
+                miss: !oneC,              // и помечаем для жёлтой подсветки
                 docNum: ordersData.map.get(r.num) || '',
                 label: (pi != null && pi < shkData.ordered.length) ? shkData.ordered[pi] : null
             };
         });
+        // сортировка по алфавиту по «Наименованию из 1С»
+        rows.sort((a, b) => a.name1c.toLowerCase().localeCompare(b.name1c.toLowerCase(), 'ru'));
         const noDoc = rows.filter(r => !r.docNum).length;
-        const noName = rows.filter(r => !r.name1c).length;
+        const noName = rows.filter(r => r.miss).length;
 
         setProgress(15, 'Формируем Excel...', '');
         const blob = await buildLpXlsx(rows);
@@ -683,7 +689,7 @@ function showResults() {
         </div>
         <div class="summary-card ${noName ? 'warn' : 'ok'}">
             <span class="num">${rows.length - noName}</span>
-            <div class="lbl">С наименованием из 1С</div>
+            <div class="lbl">Наименований из 1С</div>
         </div>
         <div class="summary-card ok">
             <span class="num">${rows.filter(r => r.photo).length}</span>
@@ -697,8 +703,8 @@ function showResults() {
         warnHtml += `<p><strong>⚠️ ${noDoc} задани(й) без «Номера документа»</strong> — не нашлись в заказах МБТ 30 по «Идентификатору МП»: ${nums}${noDoc > 10 ? ' …' : ''}</p>`;
     }
     if (noName) {
-        const arts = rows.filter(r => !r.name1c).map(r => r.article).slice(0, 10).join(', ');
-        warnHtml += `<p><strong>⚠️ ${noName} артикул(ов) не нашлось в прайсе</strong> — «Наименование 1С» останется пустым: ${arts}${noName > 10 ? ' …' : ''}</p>`;
+        const arts = rows.filter(r => r.miss).map(r => r.article).slice(0, 10).join(', ');
+        warnHtml += `<p><strong>⚠️ ${noName} артикул(ов) не нашлось в прайсе</strong> — в «Наименовании 1С» оставлено наименование из ЛК, строки подсвечены жёлтым: ${arts}${noName > 10 ? ' …' : ''}</p>`;
     }
     const noPhoto = rows.filter(r => !r.photo).length;
     if (noPhoto) {
