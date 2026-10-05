@@ -82,13 +82,13 @@
                 </div>
                 <div class="panel-body">
                     <div class="upload-area" id="ordersUploadArea">
-                        <p class="area-desc">Загрузите <strong>файл заказов</strong> —<br>по «Идентификатору МП» возьмём «Номер документа»</p>
+                        <p class="area-desc">Загрузите <strong>файл заказов</strong> —<br>по «Идентификатору МП» или «Телефон1» возьмём «Номер документа»</p>
                         <input type="file" id="ordersFileInput" accept=".xlsx,.xls" style="display:none">
                         <button class="upload-btn" onclick="document.getElementById('ordersFileInput').click()">⬆️ Выбрать Excel</button>
                         <p class="hint">или перетащите файл сюда</p>
                         <p id="ordersFileName" class="file-name"></p>
                     </div>
-                    <div id="ordersStatus" class="status">Обязательно: столбики «Идентификатор МП» и «Номер документа»</div>
+                    <div id="ordersStatus" class="status">Обязательно: «Номер документа» + «Идентификатор МП» или «Телефон1»</div>
                 </div>
             </div>
         </div>

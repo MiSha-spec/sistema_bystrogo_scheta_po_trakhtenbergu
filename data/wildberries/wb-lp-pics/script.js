@@ -377,21 +377,29 @@ async function handlePrice(file) {
 
 /* ============================ Заказы МБТ 30 (Excel) ============================ */
 
-/* «Идентификатор МП» = № задания → «Номер документа» */
+/* Ключ = № задания: ищем «Идентификатор МП» или «Телефон1» → «Номер документа» */
 async function handleOrders(file) {
     document.getElementById('ordersFileName').textContent = file.name;
     setStatus('ordersStatus', '⏳ Чтение файла...', '');
     try {
-        const rows = readSheet(new Uint8Array(await file.arrayBuffer()), ['Идентификатор МП', 'Номер документа']);
+        const buf = new Uint8Array(await file.arrayBuffer());
+        let keyCol = 'Идентификатор МП';
+        let rows;
+        try {
+            rows = readSheet(buf, ['Идентификатор МП', 'Номер документа']);
+        } catch (e) {
+            keyCol = 'Телефон1';
+            rows = readSheet(buf, ['Телефон1', 'Номер документа']);
+        }
         const map = new Map();
         for (const r of rows) {
-            const mp = normKey(r['Идентификатор МП']);
+            const mp = normKey(r[keyCol]);
             const dn = String(r['Номер документа'] || '').trim();
             if (mp && dn && !map.has(mp)) map.set(mp, dn);
         }
-        if (!map.size) throw new Error('не нашли пар «Идентификатор МП + Номер документа»');
+        if (!map.size) throw new Error('не нашли пар «Номер документа» с «Идентификатором МП» или «Телефон1»');
         ordersData = { map: map, name: file.name };
-        setStatus('ordersStatus', `✅ Заказов: ${map.size}`, 'success');
+        setStatus('ordersStatus', `✅ Заказов: ${map.size} (по ${keyCol})`, 'success');
     } catch (err) {
         ordersData = null;
         setStatus('ordersStatus', '❌ Ошибка: ' + err.message, 'error');
