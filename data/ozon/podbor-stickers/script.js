@@ -20,6 +20,8 @@ let showAllMode = false;
 
 const NUM_RE = /^\d{5,10}-\d{3,5}-\d{1,3}$/;
 const STICKER_GLUE_RE = /^(\d{5,10}-\d{3,5}-\d{1,3})\d{4}$/; // номер + 4-значный код этикетки (наклейки)
+const LABEL_ID_RE = /^ii\d{8,16}$/i; // новый полный ID этикетки Ozon
+const LABEL_ID_SEARCH_RE = /(^|[^a-zа-яё0-9])(ii\d{8,16})(?=$|[^a-zа-яё0-9])/ig;
 const LP_GLUE_RE = /^(\d{1,4})(\d{8,10}-\d{3,5}-\d{1,3})$/;  // порядковый номер + номер отправления (лист подбора, после 999-й строки)
 
 function normArt(v) {
@@ -71,81 +73,6 @@ function wireUpload(areaId, inputId, statusId, nameId, handler) {
 
 /* ============================ Прайс (Excel) ============================ */
 
-/* Прайс: сами находим колонки «артикул» и «наименование» — формат файла
-   плавает: колонки переезжают, сверху появляются шапки и логотипы.
-   1) шапка: в строке есть «артикул/арт/код» и «наименование/товар/название»;
-   2) без шапки: колонка артикулов — самая «числовая», в которой числа НЕ идут
-      подряд (иначе это колонка «№»); названия — колонка с длинным текстом. */
-function buildPriceMap(grid) {
-    const norm = (v) => typeof v === 'number' ? String(Math.round(v)) : normArt(v);
-    const artLike = (s) => /^\d{4,10}$/.test(s);
-    const nameLike = (s) => s.length >= 5 && /[А-Яа-яЁёA-Za-z]/.test(s);
-    const headArt = (s) => /^(артикул|арт|код)/.test(s);
-    const headName = (s) => /^(наименован|товар|название|номенклатур)/.test(s);
-
-    let artCol = -1, nameCol = -1, start = 0;
-    for (let i = 0; i < Math.min(grid.length, 15) && artCol === -1; i++) {
-        const heads = grid[i].map(c => normArt(c).toLowerCase());
-        const a = heads.findIndex(h => h && headArt(h));
-        if (a === -1) continue;
-        const n = heads.findIndex(h => h && headName(h));
-        if (n !== -1 && n !== a) { artCol = a; nameCol = n; start = i + 1; }
-    }
-
-    if (artCol === -1) {
-        const scan = Math.min(grid.length, 80);
-        let maxC = 0;
-        for (let i = 0; i < scan; i++) maxC = Math.max(maxC, grid[i].length);
-        maxC = Math.min(maxC, 12);
-        const artCnt = new Array(maxC).fill(0);
-        const seqCnt = new Array(maxC).fill(0);
-        const nameCnt = new Array(maxC).fill(0);
-        for (let c = 0; c < maxC; c++) {
-            let prev = null;
-            for (let i = 0; i < scan; i++) {
-                const s = norm(grid[i][c]);
-                if (artLike(s)) {
-                    artCnt[c]++;
-                    const n = parseInt(s, 10);
-                    if (prev != null && n === prev + 1) seqCnt[c]++;
-                    prev = n;
-                } else prev = null;
-                if (nameLike(String(grid[i][c] == null ? '' : grid[i][c]).trim())) nameCnt[c]++;
-            }
-        }
-        for (let c = 0; c < maxC; c++)
-            if (artCnt[c] >= 5 && seqCnt[c] <= artCnt[c] * 0.6 &&
-                (artCol === -1 || artCnt[c] > artCnt[artCol]))
-                artCol = c;
-        for (let c = 0; c < maxC; c++)
-            if (c !== artCol && nameCnt[c] >= 5 &&
-                (nameCol === -1 || nameCnt[c] > nameCnt[nameCol]))
-                nameCol = c;
-        if (artCol !== -1 && nameCol !== -1) {
-            start = grid.findIndex(r => artCol < r.length && artLike(norm(r[artCol])) &&
-                                       nameCol < r.length &&
-                                       nameLike(String(r[nameCol] == null ? '' : r[nameCol]).trim()));
-            if (start === -1) start = 0;
-        }
-    }
-
-    if (artCol === -1 || nameCol === -1 || nameCol === artCol) {
-        artCol = 0; nameCol = 1; start = 0;   // запасной путь — как раньше
-    }
-
-    const map = new Map();
-    let dup = 0;
-    for (let i = start; i < grid.length; i++) {
-        const r = grid[i];
-        const art = norm(r[artCol]);
-        const nm = String(r[nameCol] == null ? '' : r[nameCol]).trim();
-        if (art && nm) {
-            if (!map.has(art)) map.set(art, nm); else dup++;
-        }
-    }
-    return { map: map, dup: dup };
-}
-
 async function handlePrice(file) {
     document.getElementById('priceFileName').textContent = file.name;
     document.getElementById('priceUploadArea').classList.remove('loaded');
@@ -155,10 +82,16 @@ async function handlePrice(file) {
         const wb = XLSX.read(buf, { type: 'array' });
         const ws = wb.Sheets[wb.SheetNames[0]];
         if (!ws) throw new Error('в файле нет таблиц');
-        // raw: true — артикул-число берём как число: в форматированном тексте
-        // бывают разделители разрядов («442,885»), из-за них ключ не совпадает
-        const rows = XLSX.utils.sheet_to_json(ws, { header: 1, raw: true, defval: '' });
-        const { map, dup: empty } = buildPriceMap(rows);
+        const rows = XLSX.utils.sheet_to_json(ws, { header: 1, raw: false, defval: '' });
+        const map = new Map();
+        let empty = 0;
+        for (const r of rows) {
+            const art = normArt(r[0]);
+            const name = String(r[1] == null ? '' : r[1]).trim();
+            if (!art || !name) continue;
+            if (/^(артикул|арт|код)$/i.test(art) && /наимен|товар|назв/i.test(name)) continue; // шапка
+            if (!map.has(art)) map.set(art, name); else empty++;
+        }
         if (map.size === 0) throw new Error('не найдены столбцы «артикул + наименование»');
         state.price = { map, name: file.name, count: map.size };
         document.getElementById('priceUploadArea').classList.add('loaded');
@@ -203,6 +136,45 @@ function itemsToWords(items) {
         }
     }
     return words;
+}
+
+// Идентификатор ii в PDF может быть разделён на фрагменты разными шрифтами.
+// Объединяем ТОЛЬКО соседние фрагменты одной печатной строки, а не произвольные цифры страницы.
+function normalizedLabelPart(value) {
+    return String(value || '').replace(/[\u0456\u0406]/g, 'i') // кириллическая і
+        .replace(/[\u0131]/g, 'i')
+        .replace(/[\s\u00a0\u202f]/g, '').toLowerCase();
+}
+
+function labelIdsFromWords(words) {
+    const result = new Set();
+    const lines = [];
+    for (const w of words) {
+        const line = lines.find(l => Math.abs(l.y - w.y) <= Math.max(3, Math.min(7, Math.max(w.h || 0, l.h || 0) * 0.65)));
+        if (line) { line.words.push(w); line.h = Math.max(line.h, w.h || 0); }
+        else lines.push({ y: w.y, h: w.h || 0, words: [w] });
+    }
+    for (const line of lines) {
+        const ordered = line.words.sort((a, b) => a.x - b.x);
+        for (let i = 0; i < ordered.length; i++) {
+            let combined = '';
+            let right = null;
+            for (let j = i; j < ordered.length && j < i + 20; j++) {
+                const w = ordered[j];
+                const part = normalizedLabelPart(w.text);
+                if (right !== null && w.x - right > Math.max(24, (w.h || 0) * 2.5)) break;
+                if (!/^[i0-9]+$/.test(part)) break;
+                const next = combined + part;
+                if (!/^i{0,2}\d{0,16}$/.test(next)) break;
+                combined = next;
+                right = Math.max(right === null ? -Infinity : right, w.x + w.w);
+            }
+            // Не считаем короткий префикс подходящим, если после него стоит продолжение.
+            // Длина у ii-идентификаторов определяется конкретным PDF.
+            if (LABEL_ID_RE.test(combined)) result.add(combined);
+        }
+    }
+    return [...result];
 }
 
 /* ============================ Лист подбора (PDF) ============================ */
@@ -293,13 +265,22 @@ async function handleLp(file) {
                         if (d < bd) { bd = d; best = wd; }
                     }
 
+                    // Серый ID расположен под номером отправления в той же
+                    // колонке. Берём его только в пределах соответствующей строки.
+                    // Серый ШК часто расположен правее номера отправления и может
+                    // попадать ниже 24 pt. Вся полоса строки безопаснее узкой зоны.
+                    const labelCandidates = labelIdsFromWords(words.filter(w =>
+                        w.x >= Math.max(20, a.x - 12) && w.x < 270 &&
+                        w.y <= a.y + 5 && w.y >= bottom));
+                    const labelId = labelCandidates.length === 1 ? labelCandidates[0] : null;
                     const existing = rowsMap.get(a.num);
                     if (existing) {
                         dupCount++;
                         if (!existing.name && name) existing.name = name;
                         if (!existing.article && best) existing.article = best.text;
+                        if (!existing.labelId && labelId) existing.labelId = labelId;
                     } else {
-                        rowsMap.set(a.num, { num: a.num, article: best ? best.text : '', name });
+                        rowsMap.set(a.num, { num: a.num, article: best ? best.text : '', name, labelId });
                     }
                 }
             }
@@ -325,22 +306,69 @@ async function handleLp(file) {
 /* ============================ Наклейки (PDF) ============================ */
 
 function stickerNumberFromPage(tc) {
-    // 1) точное совпадение элемента текста с номером отправления
-    for (const it of tc.items) {
-        const t = (it.str || '').trim();
-        if (NUM_RE.test(t)) return t;
+    // В новых этикетках ii-префикс и четыре последние цифры могут быть
+    // разными текстовыми элементами/шрифтами одной строки.
+    const ids = labelIdsFromWords(itemsToWords(tc.items));
+    if (ids.length > 1) return null; // неоднозначный ШК
+    if (ids.length === 1) return ids[0];
+
+    // Дополнительное чтение ii по текстовым элементам PDF, когда координаты
+    // шрифтов немного различаются. Принимаем только ПОЛНЫЙ идентификатор.
+    const chunks = tc.items.map(it => String(it.str || '').trim()).filter(Boolean);
+    const joined = chunks.join(' ');
+    const newIds = [...new Set([...joined.matchAll(/(?:^|[^\w])(ii\s*(?:\d\s*){8,16})(?=$|[^\w])/gi)]
+        .map(m => normalizedLabelPart(m[1])).filter(v => LABEL_ID_RE.test(v)))];
+    if (newIds.length > 1) return null;
+    if (newIds.length === 1) return newIds[0];
+
+    // Старые Ozon: «4414 0656» и «-0784-1» могут находиться в нескольких
+    // pdf.js items. Разрешаем пробелы ВНУТРИ цифровой части, но не меняем
+    // ни одной цифры и не используем последние четыре цифры как ключ.
+    const oldIds = new Set();
+    // Старый формат: к номеру мог быть дописан 4-значный код этикетки
+    // (0149277213-0100-17213), номер мог быть разбит пробелом/переносом
+    // и стоять рядом с другим текстом страницы.
+    const OLD_RE = /(?:^|[^0-9])((?:\d{5,10}|\d{4,7}[\s\u00a0\u202f]+\d{1,6})[\s\u00a0\u202f]*-\s*\d{3,5}-\s*\d{1,3})(?:\d{4})?(?!\d)/g;
+    for (const m of joined.matchAll(OLD_RE)) {
+        const candidate = m[1].replace(/[\s\u00a0\u202f]+/g, '');
+        if (NUM_RE.test(candidate)) oldIds.add(candidate);
     }
-    // 2) номер, склеенный с 4-значным кодом этикетки
-    for (const it of tc.items) {
-        const t = (it.str || '').trim();
-        const m = STICKER_GLUE_RE.exec(t);
-        if (m) return m[1];
+    // Тот же старый формат, но номер слитно с кодом и с текстом в одном
+    // элементе PDF («OZON 0149277213-0100-17213»).
+    for (const value of chunks) {
+        const compact = value.replace(/[\s\u00a0\u202f]+/g, '');
+        for (const m of compact.matchAll(/(\d{5,10}-\d{3,5}-\d{1,3})(?:\d{4})?(?!\d)/g)) {
+            if (NUM_RE.test(m[1])) oldIds.add(m[1]);
+        }
     }
-    // 3) склейка без пробелов в объединённом тексте
-    const joined = tc.items.map(i => (i.str || '').trim()).join('').replace(/\s+/g, '');
-    const m = /(\d{5,10}-\d{3,5}-\d{1,3})\d{4}/.exec(joined);
-    if (m) return m[1];
-    return null;
+    return oldIds.size === 1 ? [...oldIds][0] : null;
+}
+
+// Соответствие строится строго в порядке УЖЕ отсортированного листа.
+// Каждая страница наклейки может использоваться только один раз.
+function matchStickerPages(rows, pageOf, pageCount) {
+    const pageIndices = [], missingStickers = [], usedPages = new Set();
+    const labelOwners = new Map();
+    for (const r of rows) {
+        if (!r.labelId) continue;
+        if (!labelOwners.has(r.labelId)) labelOwners.set(r.labelId, new Set());
+        labelOwners.get(r.labelId).add(r.num);
+    }
+    for (const r of rows) {
+        const key = r.labelId || r.num;
+        const unique = !r.labelId || labelOwners.get(r.labelId).size === 1;
+        const available = unique ? (pageOf.get(key) || []) : [];
+        const pg = available.find(p => Number.isInteger(p) && p >= 1 && p <= pageCount && !usedPages.has(p)) || null;
+        pageIndices.push(pg);
+        if (pg === null) missingStickers.push(r.num);
+        else usedPages.add(pg);
+    }
+    const extraStickers = [];
+    for (let p = 1; p <= pageCount; p++) if (!usedPages.has(p)) extraStickers.push(p);
+    if (pageIndices.filter(p => p !== null).length !== usedPages.size) {
+        throw new Error('Ошибка проверки: одна страница наклейки назначена повторно');
+    }
+    return { pageIndices, missingStickers, extraStickers };
 }
 
 async function handleTicket(file) {
@@ -419,10 +447,11 @@ function buildXlsx(rows) {
     zip.file('xl/styles.xml',
         '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>' +
         '<styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">' +
-        '<fonts count="3">' +
+        '<fonts count="4">' +
         '<font><sz val="11"/><name val="Calibri"/></font>' + // 0 — обычный
         '<font><b/><sz val="11"/><color rgb="FFFFFFFF"/><name val="Calibri"/></font>' + // 1 — шапка
         '<font><sz val="11"/><color rgb="FF7A5B00"/><name val="Calibri"/></font>' + // 2 — подсвеченная строка
+        '<font><b/><sz val="14"/><color rgb="FF005BFF"/><name val="Calibri"/></font>' + // 3 — выделенные четыре цифры ШК
         '</fonts>' +
         '<fills count="5">' +
         '<fill><patternFill patternType="none"/></fill>' +
@@ -452,7 +481,7 @@ function buildXlsx(rows) {
     let sheet =
         '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>' +
         '<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">' +
-        `<dimension ref="A1:C${n + 1}"/>` +
+        `<dimension ref="A1:D${n + 1}"/>` +
         '<sheetViews><sheetView workbookViewId="0">' +
         '<pane ySplit="1" topLeftCell="A2" activePane="bottomLeft" state="frozen"/>' +
         '</sheetView></sheetViews>' +
@@ -461,13 +490,31 @@ function buildXlsx(rows) {
         '<col min="1" max="1" width="20" customWidth="1"/>' +
         '<col min="2" max="2" width="12" customWidth="1"/>' +
         '<col min="3" max="3" width="84" customWidth="1"/>' +
+        '<col min="4" max="4" width="22" customWidth="1"/>' +
         '</cols>' +
         '<sheetData>';
 
     const cell = (ref, value, style) =>
         `<c r="${ref}"${style ? ` s="${style}"` : ''} t="inlineStr"><is><t xml:space="preserve">${escapeXml(value)}</t></is></c>`;
 
-    sheet += `<row r="1">${cell('A1', 'Номер отправления', 1)}${cell('B1', 'Артикул', 1)}${cell('C1', 'Товар', 1)}</row>`;
+    // Номер ШК всегда полный: новый ii... или обычный номер отправления.
+    // В XLSX выделяем исключительно нужную 4-значную группу, не изменяя текст номера.
+    const labelCell = (ref, r, style) => {
+        const value = r.labelId && LABEL_ID_RE.test(r.labelId) ? r.labelId : r.num;
+        const newId = /^(ii\d+)(\d{4})$/i.exec(value);
+        const oldId = /^(\d{1,6})(\d{4})(-\d{3,5}-\d{1,3})$/.exec(value);
+        const parts = newId ? [newId[1], newId[2], '']
+                    : oldId ? [oldId[1], oldId[2], oldId[3]] : null;
+        if (!parts) return cell(ref, value, style);
+        const run = (text, fontId) => text ?
+            `<r><rPr><rFont val="Calibri"/><sz val="${fontId === 3 ? 14 : 11}"/>` +
+            (fontId === 3 ? '<b/><color rgb="FF005BFF"/>' : '') +
+            `</rPr><t xml:space="preserve">${escapeXml(text)}</t></r>` : '';
+        return `<c r="${ref}"${style ? ` s="${style}"` : ''} t="inlineStr"><is>` +
+            run(parts[0], 0) + run(parts[1], 3) + run(parts[2], 0) + '</is></c>';
+    };
+
+    sheet += `<row r="1">${cell('A1', 'Номер отправления', 1)}${cell('B1', 'Артикул', 1)}${cell('C1', 'Товар', 1)}${cell('D1', 'Номер ШК', 1)}</row>`;
 
     // Чередование серых полос по блокам одинаковых товаров (видно при ч/б печати)
     let band = false;
@@ -476,10 +523,10 @@ function buildXlsx(rows) {
         if (r.name !== prevName) { band = !band; prevName = r.name; }
         const rn = i + 2;
         const s = !r.fromPrice ? 4 : (band ? 3 : 2);
-        sheet += `<row r="${rn}">${cell('A' + rn, r.num, s)}${cell('B' + rn, r.article, s)}${cell('C' + rn, r.name, s)}</row>`;
+        sheet += `<row r="${rn}">${cell('A' + rn, r.num, s)}${cell('B' + rn, r.article, s)}${cell('C' + rn, r.name, s)}${labelCell('D' + rn, r, s)}</row>`;
     });
 
-    sheet += `</sheetData><autoFilter ref="A1:C${n + 1}"/></worksheet>`;
+    sheet += `</sheetData><autoFilter ref="A1:D${n + 1}"/></worksheet>`;
     zip.file('xl/worksheets/sheet1.xml', sheet);
 
     return zip.generateAsync({ type: 'blob', compression: 'DEFLATE', compressionOptions: { level: 6 } });
@@ -505,6 +552,7 @@ async function startPack() {
             const priceName = art ? state.price.map.get(art) : null;
             return {
                 num: r.num,
+                labelId: r.labelId || null,
                 article: r.article,
                 name: priceName != null ? priceName : r.name,
                 fromPrice: priceName != null,
@@ -529,27 +577,11 @@ async function startPack() {
         setProgress(60, 'Сопоставление наклеек с листом...', '');
         await new Promise(r => setTimeout(r, 30));
         const pageOf = state.ticket.pageOf;
-        const pageIndices = [];
-        const missingStickers = [];
-        const usedPages = new Set();
-        for (const r of rows) {
-            const q = pageOf.get(r.num);
-            if (q && q.length) {
-                const pg = q.shift();
-                pageIndices.push(pg);
-                usedPages.add(pg);
-            } else {
-                pageIndices.push(null);
-                missingStickers.push(r.num);
-            }
-        }
-        const extraStickers = [];
+        const { pageIndices, missingStickers, extraStickers } =
+            matchStickerPages(rows, pageOf, state.ticket.pages);
         const extraNums = [];
-        for (let p = 1; p <= state.ticket.pages; p++) {
-            if (!usedPages.has(p)) {
-                extraStickers.push(p);
-                extraNums.push(state.ticket.pageToNum.get(p) || ('стр. ' + p));
-            }
+        for (const p of extraStickers) {
+            extraNums.push(state.ticket.pageToNum.get(p) || ('стр. ' + p));
         }
 
         // 5. Пересборка PDF (в pdf-lib индексы страниц с нуля)

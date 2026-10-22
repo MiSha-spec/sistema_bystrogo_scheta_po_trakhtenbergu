@@ -196,6 +196,11 @@ async function handleListPdf(file) {
                 };
                 const article = nearest(cols.article);
                 const sticker = nearest(cols.sticker);
+                // новый формат Ozon: в колонке «Номер с этикетки» под номером
+                // отправления напечатан код вида ii50081843843
+                const labelWord = words.find(wd => wd.x < 186 && inBand(wd) &&
+                    /^ii\d{6,}$/i.test(wd.text.replace(/\s+/g, '')));
+                const labelId = labelWord ? labelWord.text.replace(/\s+/g, '').toLowerCase() : null;
 
                 if (rowsMap.has(a.num)) {
                     dupCount++;
@@ -203,10 +208,11 @@ async function handleListPdf(file) {
                     if (!ex.name && name) ex.name = name;
                     if (!ex.article && article) ex.article = article;
                     if (!ex.sticker && sticker) ex.sticker = sticker;
+                    if (!ex.labelId && labelId) ex.labelId = labelId;
                 } else if (article && sticker) {
                     rowsMap.set(a.num, {
                         posting: a.num, name: name, qty: nearest(cols.qty),
-                        article: article, sticker: sticker, photo: null
+                        article: article, sticker: sticker, labelId: labelId, photo: null
                     });
                 }
             }
@@ -357,6 +363,10 @@ async function handleShk(file) {
                 w: canvas.width, h: canvas.height
             });
             const tc = await page.getTextContent();
+            // Вся печатная «мелочь» страницы без пробелов: по ней на этапе
+            // сборки находим и номер отправления (старый формат), и код ii…
+            ordered[ordered.length - 1].compact = tc.items.map(it => it.str || '').join('')
+                .replace(/[\s\u00a0\u202f]+/g, '');
             const num = postingFromPage(tc);
             if (num) {
                 if (!pageOf.has(num)) pageOf.set(num, []);
@@ -816,6 +826,7 @@ async function startBuild() {
                 qty: r.qty,
                 article: r.article,
                 sticker: r.sticker,
+                labelId: r.labelId || null,
                 photo: r.photo,
                 origIdx: idx,
                 name1c: oneC || r.name,   // нет в прайсе — название из листа сборки
@@ -829,20 +840,39 @@ async function startBuild() {
             a.name1c.toLowerCase().localeCompare(b.name1c.toLowerCase(), 'ru') ||
             a.origIdx - b.origIdx);
 
-        // этикетки: страницы в порядке строк листа (после сортировки)
+        // Этикетки: страницы в порядке строк листа (после сортировки).
+        // Новый формат: часть наклеек вообще без номера отправления — на них
+        // напечатан код ii…, он есть в колонке «Номер с этикетки».
+        const pages = shkData.ordered;
         const pageOf = new Map();
-        shkData.pageOf.forEach((list, num) => pageOf.set(num, list.slice()));
         const usedPages = new Set();
         const missingLabels = [];
+        const takePage = (pred) => {
+            for (let i = 0; i < pages.length; i++) {
+                const pg = i + 1;
+                if (usedPages.has(pg)) continue;
+                if (pred(pages[i])) return pg;
+            }
+            return null;
+        };
         for (const r of rows) {
-            const q = pageOf.get(r.posting);
-            if (q && q.length) {
-                const pg = q.shift();
+            let pg = takePage(p => (p.compact || '').indexOf(r.posting) !== -1);
+            if (pg === null && r.labelId) {
+                pg = takePage(p => (p.compact || '').indexOf(r.labelId) !== -1);
+            }
+            if (pg === null) {
+                const q = pageOf.get(r.posting);
+                if (q && q.length) pg = q.shift();
+            }
+            if (pg !== null) {
                 usedPages.add(pg);
-                r.label = shkData.ordered[pg - 1] || null;
+                r.label = pages[pg - 1] || null;
+                if (!pageOf.has(r.posting)) pageOf.set(r.posting, []);
+                pageOf.get(r.posting).push(pg);
             }
             if (!r.label) missingLabels.push(r.posting);
         }
+        shkData.pageOf = pageOf;
         const extraPages = [];
         const extraNums = [];
         for (let p = 1; p <= shkData.pages; p++) {
