@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Отменённые заказы — ЯндексМаркет</title>
     <link rel="stylesheet" href="styles.css">
-    <link rel="stylesheet" href="../../../assets/site.css?v=3">
+    <link rel="stylesheet" href="../../../assets/site.css?v=4">
     <link rel="stylesheet" href="../../../assets/themes.css">
     <script>try{document.documentElement.setAttribute("data-theme",localStorage.getItem("ra-theme")||"light")}catch(e){}</script>
     <script src="../../../assets/vendor/xlsx.full.min.js"></script>
@@ -40,7 +40,7 @@
             </div>
 
             <!-- Плашка 2: Список заказов из ЛК -->
-            <div class="panel lk-panel2">
+            <div class="panel lk-panel2" id="lkPanel">
                 <div class="panel-header">
                     <h3>🛒 Список заказов из ЛК</h3>
                 </div>
@@ -49,7 +49,7 @@
                     <div class="reestr-file-row">
                         <input type="file" id="lkFileInput" accept=".xlsx,.xls,.csv" style="display:none">
                         <button class="upload-btn small" onclick="document.getElementById('lkFileInput').click()">📥 Загрузить Excel из ЛК</button>
-                        <span class="hint">шапка, названия и число столбиков могут быть любыми — найдём сами</span>
+                        <span class="hint">шапка, названия и число столбиков могут быть любыми — найдём сами<br>файл можно просто перетащить в это окошко</span>
                     </div>
                     <div id="lkFileStatus" class="status"></div>
                 </div>
@@ -75,10 +75,25 @@
         </div>
     </div>
 
-    <script src="script.js"></script>
+    <script src="script.js?v=5"></script>
 
-    <script src="../../../assets/reestr-file.js?v=4"></script>
-    <script>ReestrFileSupport.setup({ textareaId: 'reestrText', inputId: 'reestrFileInput', statusId: 'reestrFileStatus', dropId: 'reestrText', dupId: 'reestrDupWarning' });</script>
+    <script src="../../../assets/reestr-file.js?v=5"></script>
+    <script>
+    ReestrFileSupport.setup({ textareaId: 'reestrText', inputId: 'reestrFileInput', statusId: 'reestrFileStatus', dropId: 'reestrText', dupId: 'reestrDupWarning' });
+    // Окно «Список заказов из ЛК» — файл можно перетащить в любое место плашки
+    ReestrFileSupport.setupFileDrop({
+        dropId: 'lkPanel',
+        inputId: 'lkFileInput',
+        accept: /\.(xlsx|xls|csv|txt)$/i,
+        onFile: function (f) { handleLkFile(f); },
+        onReject: function () {
+            var s = document.getElementById('lkFileStatus');
+            if (!s) return;
+            s.textContent = '❌ Нужен файл Excel (.xlsx, .xls) или .csv из ЛК';
+            s.className = 'status error';
+        }
+    });
+    </script>
 
     <script src="../../../assets/audio.js?v=4"></script>
     <script src="../../../assets/themes.js"></script>

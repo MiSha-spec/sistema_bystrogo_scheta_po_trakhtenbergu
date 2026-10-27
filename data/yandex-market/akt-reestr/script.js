@@ -10,8 +10,16 @@ uploadArea.addEventListener('dragleave', () => uploadArea.classList.remove('drag
 uploadArea.addEventListener('drop', e => {
     e.preventDefault();
     uploadArea.classList.remove('dragover');
-    const file = e.dataTransfer.files[0];
-    if (file && file.type === 'application/pdf') handlePdf(file);
+    const file = e.dataTransfer.files && e.dataTransfer.files[0];
+    if (!file) return;
+    // у файлов из 1С и архивов MIME может быть пустым — смотрим ещё и на расширение
+    if (file.type === 'application/pdf' || /\.pdf$/i.test(file.name || '')) {
+        handlePdf(file);
+    } else {
+        const status = document.getElementById('pdfStatus');
+        status.textContent = '❌ Нужен файл PDF';
+        status.className = 'status error';
+    }
 });
 pdfInput.addEventListener('change', e => { if (e.target.files[0]) handlePdf(e.target.files[0]); });
 
