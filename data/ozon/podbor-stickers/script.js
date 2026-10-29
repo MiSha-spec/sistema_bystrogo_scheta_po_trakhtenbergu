@@ -355,10 +355,19 @@ function matchStickerPages(rows, pageOf, pageCount) {
         labelOwners.get(r.labelId).add(r.num);
     }
     for (const r of rows) {
-        const key = r.labelId || r.num;
-        const unique = !r.labelId || labelOwners.get(r.labelId).size === 1;
-        const available = unique ? (pageOf.get(key) || []) : [];
-        const pg = available.find(p => Number.isInteger(p) && p >= 1 && p <= pageCount && !usedPages.has(p)) || null;
+        // Сначала ищем наклейку по ii-ID из Листа подбора (новый формат этикеток),
+        // если он однозначный. Если такой этикетки нет — ищем по номеру
+        // отправления: старый формат этикетки печатается без ii-ID, только с
+        // номером. Партии бывают смешанные: в листе у строки ii-ID есть, а
+        // наклейка напечатана старым форматом — тогда выручает номер.
+        const ownLabelId = r.labelId && labelOwners.get(r.labelId).size === 1 ? r.labelId : null;
+        let pg = null;
+        for (const key of [ownLabelId, r.num]) {
+            if (!key) continue;
+            const available = pageOf.get(key) || [];
+            const cand = available.find(p => Number.isInteger(p) && p >= 1 && p <= pageCount && !usedPages.has(p));
+            if (cand) { pg = cand; break; }
+        }
         pageIndices.push(pg);
         if (pg === null) missingStickers.push(r.num);
         else usedPages.add(pg);
